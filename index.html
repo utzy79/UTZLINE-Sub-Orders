@@ -216,6 +216,34 @@
   applied to the Type select) every time the root folder becomes usable
   -- first pick, reconnect, and the test hook -- via loadSharedTaxonomies(),
   called from inside loadHome().
+
+  ****************************************************************
+  * v5 (2026-09-27, same day) -- BUG FIX: setOrderReceived() was   *
+  * silently dropping typeLabel.                                   *
+  ****************************************************************
+
+  Found while wiring "mark as received" into the other family apps'
+  own new Sub orders cards (Andrew: "add ordered (with a description)
+  summary to the main schedule" + "all joinery summary pages to show
+  the associated orders. with the option to mark them as recieved").
+  setOrderReceived()'s own field allowlist predated typeLabel (v4), so
+  ticking Received on ANY order in this app's own View Orders list
+  quietly reverted a custom order type's chip back to its raw storage
+  key (e.g. "glass" instead of "Glass") everywhere downstream that
+  reads this file. Fixed to build the updated record with a shallow
+  copy (Object.assign({}, o, {...})) instead of an explicit field
+  list, so no future field can be missed this way again. No UI/behaviour
+  change -- same received/receivedDate toggle as v3, just no longer
+  lossy. New assertion in run_sub_orders_v1.js: mark a custom-type
+  order received, re-read, confirm typeLabel survived.
+
+  Also in v5 (review fix): readAttachedOrders() -- the read behind every
+  attach/unattach/mark-received -- used readJsonFile, which turns an
+  existing-but-unreadable file (mid-Dropbox-sync) into [], so the next
+  write would have wiped every order on that item. Now uses the strict
+  readJsonArrayFileStrict (missing = [], anything else = retry once, then
+  refuse, nothing written). setOrderReceived also refuses to write when
+  the order is no longer in the file.
 -->
 <html lang="en">
 <head>
@@ -582,7 +610,7 @@
 
 </main>
 
-<footer class="app-foot">UTZLINE Sub Orders — v4, read/write against your Projects folder</footer>
+<footer class="app-foot">UTZLINE Sub Orders — v5, read/write against your Projects folder</footer>
 
 <!-- ---- Attach order modal ---- -->
 <div class="modal-backdrop" id="attachBackdrop" hidden>
@@ -793,6 +821,15 @@
     }
     return attempt().catch(function(){ return pause(READ_RETRY_MS).then(attempt); });
   }
+  // v5 review fix: the toast for a failed read-modify-write says what
+  // actually happened -- a mid-sync file that couldn't be read (nothing
+  // was changed), or an order that's no longer attached -- instead of a
+  // generic "try again".
+  function writeFailMessage(err, fallback){
+    if (isReadFailed(err)) return "Couldn't read this item's orders (still syncing?) \u2014 nothing was changed. Try again in a moment.";
+    if (err && /isn't attached to this item any more/.test(err.message || "")) return err.message;
+    return fallback;
+  }
   function readJsonArrayFileStrict(dirHandle, fileName, what){
     return readTextFileStrict(dirHandle, fileName, what, function(text){
       var parsed = JSON.parse(text);
@@ -916,16 +953,19 @@
       return listJsonFileHandlesIn(dirH).then(function(handles){ return Promise.all(handles.map(readJsonFile)); });
     }).then(function(list){ return list.filter(function(r){ return r && r.id; }); });
   }
+  // v5 review fix (2026-09-27): this used readJsonFile, which turns a file
+  // that EXISTS but won't read or parse (mid-Dropbox-sync, truncated) into
+  // null -> [] -- and every caller here is a read-modify-write (attach,
+  // unattach, mark received), so the next write would have replaced every
+  // order on that item with just the one change. Now the strict reader
+  // this app already uses for its other read-modify-writes: missing file
+  // = [] (genuinely no orders yet), anything else = retry once, then
+  // reject with the "couldn't read (still syncing?)" error -- no write.
   function readAttachedOrders(projectHandle, level, room, joineryId){
     return tryOrdersDir(projectHandle).then(function(dirH){
       if (!dirH) return [];
-      return dirH.getFileHandle(orderFileNameFor(level, room, joineryId), { create: false }).then(function(fh){
-        return readJsonFile(fh);
-      }, function(err){
-        if (isNotFoundErr(err)) return [];
-        return Promise.reject(readFailedErr("attached orders", err));
-      });
-    }).then(function(arr){ return Array.isArray(arr) ? arr : []; });
+      return readJsonArrayFileStrict(dirH, orderFileNameFor(level, room, joineryId), "attached orders");
+    });
   }
   // Reads every file in Orders/ ONCE and keys the result by the item
   // identity stored inside each order (not by re-parsing the filename --
@@ -1213,21 +1253,32 @@
   // Orders/ file fresh rather than trusting in-memory state, then writes
   // the whole array back -- same read-modify-write shape every other
   // write here already uses (see writeAttachedOrders' callers).
+  //
+  // v5 fix (2026-09-27): this used to rebuild the order object from a
+  // hardcoded field allowlist that predated typeLabel (v4) -- so marking
+  // ANY order received here silently dropped its typeLabel, reverting a
+  // custom order type back to its raw storage key everywhere downstream
+  // (Projects' Sub orders card, Scheduler's Ordered column, and the new
+  // per-app Sub orders cards). Found while wiring "mark as received"
+  // into those other apps' own writers, all of which use a shallow copy
+  // for exactly this reason -- fixed here the same way so this is the
+  // one place going forward, not a field list every future field has to
+  // remember to join.
   function setOrderReceived(projectHandle, order, received, receivedDate){
     return readAttachedOrders(projectHandle, order.level, order.room, order.joineryId).then(function(existing){
       var updated = null;
       var next = existing.map(function(o){
         if (o.id !== order.id) return o;
-        updated = {
-          id: o.id, type: o.type, requiredByDate: o.requiredByDate,
-          supplier: o.supplier, poNumber: o.poNumber, notes: o.notes,
-          fileName: o.fileName, filePath: o.filePath, storedName: o.storedName,
-          level: o.level, room: o.room, joineryId: o.joineryId, attachedAt: o.attachedAt,
+        updated = Object.assign({}, o, {
           received: !!received,
           receivedDate: received ? (receivedDate || o.receivedDate || todayISO()) : null
-        };
+        });
         return updated;
       });
+      // v5 review fix: the order is no longer in the file (unattached from
+      // another device meanwhile) -- write nothing rather than rewriting
+      // the file for no reason.
+      if (!updated) return Promise.reject(new Error("That order isn't attached to this item any more \u2014 nothing was changed."));
       return writeAttachedOrders(projectHandle, order.level, order.room, order.joineryId, next).then(function(){ return updated; });
     });
   }
@@ -1850,7 +1901,7 @@
     }).catch(function(err){
       console.error("Attaching order failed:", err);
       attachSubmitBtn.disabled = false;
-      showToast("Couldn't attach that order — try again.");
+      showToast(writeFailMessage(err, "Couldn't attach that order — try again."));
     });
   });
 
@@ -1950,7 +2001,7 @@
           showToast(checked ? "Marked as received." : "Marked as not received.");
         }).catch(function(err){
           console.error("Updating received status failed:", err);
-          showToast("Couldn't update received status — try again.");
+          showToast(writeFailMessage(err, "Couldn't update received status — try again."));
           receivedCheck.checked = !checked;
           receivedDateInput.hidden = checked;
         });
@@ -1964,7 +2015,7 @@
           receivedDateInput.value = updated.receivedDate || "";
         }).catch(function(err){
           console.error("Updating received date failed:", err);
-          showToast("Couldn't update the received date — try again.");
+          showToast(writeFailMessage(err, "Couldn't update the received date — try again."));
         });
       });
       row.querySelector('[data-role="unattach"]').addEventListener("click", function(){
@@ -1979,7 +2030,7 @@
             showToast("Moved back to the inbox.");
           }).catch(function(err){
             console.error("Unattach failed:", err);
-            showToast("Couldn't unattach that order — try again.");
+            showToast(writeFailMessage(err, "Couldn't unattach that order — try again."));
           });
         });
       });
@@ -2259,7 +2310,14 @@
       check.dispatchEvent(new Event("change"));
       return pause(80).then(function(){ return true; });
     },
-    dumpFakeTreeForTest: function(){ return JSON.parse(JSON.stringify(state.root && state.root._node)); }
+    dumpFakeTreeForTest: function(){ return JSON.parse(JSON.stringify(state.root && state.root._node)); },
+    // v5 review fix test support: overwrite (text) or delete (null) one
+    // file in the fake tree in place, e.g. to simulate a mid-sync file.
+    setFakeFileTextForTest: function(dirSegments, fileName, text){
+      var n = state.root._node;
+      dirSegments.forEach(function(seg){ n = n.dirs[seg]; });
+      if (text === null) delete n.files[fileName]; else n.files[fileName] = { text: text };
+    }
   };
 })();
 </script>

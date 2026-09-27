@@ -79,8 +79,20 @@
 // Supplier field now autocompletes from a root-level, deduped list
 // (Projects/Sub Orders Suppliers.json), updated as a side effect of
 // every successful attach.
+//
+// v5 (2026-09-27, same day): bug fix -- setOrderReceived() was
+// rebuilding the order record from a field allowlist that predated
+// typeLabel (v4), so marking any order received silently dropped its
+// typeLabel (a custom type's real display name). Found while wiring
+// "mark as received" into the other family apps' own new Sub orders
+// cards. Fixed to shallow-copy the existing record instead of listing
+// fields explicitly. No behaviour change to the receive/unreceive
+// toggle itself.
+// Also in v5: readAttachedOrders() (behind attach/unattach/mark received)
+// no longer treats an unreadable, mid-sync Orders file as empty -- it
+// retries once, then writes nothing ("unreadable is not empty").
 var ICON_VERSION = "v1";
-var CACHE_NAME = "utzline-sub-orders-cache-v4";
+var CACHE_NAME = "utzline-sub-orders-cache-v5";
 
 var PRECACHE_URLS = [
   "./",
