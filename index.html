@@ -1,0 +1,1561 @@
+<!doctype html>
+<!--
+  UTZLINE Sub Orders -- a NEW, SEPARATE, standalone app in the UTZLINE
+  family. Requested directly by Andrew (2026-09-27):
+
+    "we need a sub contractor orders app. where we can drag and drop
+    orders into it, utilise the same menu style as all others, drag
+    orders onto a joinery item and it asks what is it (steel,
+    upholstery, timber, aluminium) and a required by date. this then
+    attaches the order to the joinery item page. (build this app first
+    before we add this to the others)"
+
+  Read as two deliberately separate steps: (1) THIS standalone app, a
+  place to log subcontractor order files and attach them onto a
+  project's own joinery items; (2) a LATER, separate round wiring the
+  same drag-and-drop-onto-a-joinery-item interaction into the other
+  family apps (Site Measure/Viewer/ITP's own joinery item pages), once
+  this one is confirmed working -- not built yet, deliberately, per
+  Andrew's own parenthetical.
+
+  Scope questions settled via AskUserQuestion before building:
+    - "Drag and drop orders into it" = dragging actual FILES (a PDF,
+      photo, email export -- whatever the order confirmation is) onto
+      the app, which creates a new pending order record from that file.
+      Not an in-app form with no file involved.
+    - Attaching an order onto a joinery item WRITES into the shared
+      Projects-root folder every other family app already reads/writes
+      -- not a separate store only this app can see -- so the data is
+      there, on that item's own page, ready for the later cross-app
+      round to read.
+    - Each order record captures: type (steel/upholstery/timber/
+      aluminium -- the four Andrew named), required-by date, supplier/
+      subcontractor name, PO/order number, and notes. (Cost/dollar value
+      was considered and explicitly left out for v1.)
+
+  DATA MODEL / FOLDER CONVENTION (per project, under the shared Projects
+  root):
+    <Project>/Project Saves/UTZLINE Sub Orders/
+      Inbox/<id>.json   -- pending orders: dropped in, not yet attached
+                            to any joinery item. {id, fileName, filePath,
+                            storedName, fileSize, droppedAt}
+      Files/<id>-<sanitized original name>
+                        -- the raw bytes of the dropped file, kept
+                            regardless of whether the order is currently
+                            attached or back in the inbox
+      Orders/<Level> - <Room> - <JoineryId>.json
+                        -- one JSON ARRAY per joinery item, every order
+                            ever attached to that item. Each entry:
+                            {id, type, requiredByDate, supplier,
+                            poNumber, notes, fileName, filePath,
+                            storedName, level, room, joineryId,
+                            attachedAt}
+
+  This is a BRAND-NEW folder with no legacy predecessor -- unlike
+  Install ITP's rework files (which branch flat-vs-legacy naming to stay
+  compatible with projects that predate the flat-structure cutover),
+  every Sub Orders project uses this one flat "<Level> - <Room> -
+  <JoineryId>.json" naming unconditionally. No isFlatProject() check
+  needed anywhere in this app.
+
+  "Unattach" (from the View orders list) moves an order back to the
+  inbox rather than permanently deleting it -- the file is kept, nothing
+  is lost -- matching this family's usual non-destructive-correction
+  convention (reworks are "closed" not deleted; ITP entries are
+  forward-only). "Remove" from the inbox itself IS a real, permanent
+  delete (of both the pending record and its file bytes), since an inbox
+  entry that was never attached to anything is very likely just a
+  wrongly-dropped file.
+
+  INTERACTION: native HTML5 drag-and-drop is the primary path (desktop:
+  drag a file from the OS onto the inbox drop zone; drag an inbox card
+  onto a joinery item row to attach it) -- but native drag doesn't work
+  well on touchscreens, and this family's apps are also used on Android
+  tablets onsite, so every drag path has a tap-based fallback: a "+ Add
+  order file" button opens a normal file picker for the drop zone, and
+  tapping an inbox card "selects" it (a highlighted bar appears: "tap a
+  joinery item, or Cancel") so tapping any joinery item row then attaches
+  it -- identical underlying attach logic either way.
+
+  COLOR / ACCESSIBILITY DECISION for the four order-type chips: running
+  the dataviz skill's own validator against the four fixed-order
+  categorical slots (`validate_palette.js "#3987e5,#d95926,#199e70,
+  #c98500" --mode dark --surface "#241522" --pairs all`) fails past the
+  3rd slot (aluminium's yellow sits too close to upholstery's orange
+  under simultaneous/unbounded comparison) -- exactly the ceiling the
+  skill documents. Rather than drop a category or invent a 5th
+  colour-safe hue, every type chip ALWAYS carries its text label
+  (Steel/Upholstery/Timber/Aluminium) as well as its colour -- the
+  skill's own documented exception ("failing pairs are legal ONLY with
+  secondary encoding: direct labels, gaps, or texture"). Identity never
+  depends on colour alone anywhere in this app.
+
+  Own accent colour: magenta/rose (#d1408f) -- the one hue not already
+  used by a sibling app (see gen_icons.py's own comment for the full
+  list). Own folder picker + IndexedDB persistence
+  ("utzline-sub-orders-db"), "readwrite" mode from the start (this app
+  writes, unlike the read-only $ Summary app).
+
+  Does NOT touch source.html, Site Measure, Viewer, Install ITP,
+  Manufacture ITP, Delivery ITP, Projects, Scheduler, Machine Schedule,
+  Solid Surface Schedule, or $ Summary in any way -- reads only
+  project-meta.json/joinery-items.json (same as every reading sibling)
+  and writes only its own new "Project Saves/UTZLINE Sub Orders/" folder,
+  which no other app reads yet -- that cross-app wiring is deliberately
+  the separate next round.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UTZLINE Sub Orders</title>
+<meta name="theme-color" content="#1a0f16">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<style>
+  :root{
+    --bg: #1a0f16;
+    --panel: #241522;
+    --panel2: #2d1a29;
+    --border: #3d2438;
+    --text: #f7f0f4;
+    --muted: #c9b3c2;
+    --muted2: #8f7a89;
+    --accent: #d1408f;
+    --accent-ink: #2a0a1b;
+    --accent-soft: #35081f;
+    --danger: #ff5d5d;
+    --warn: #e0a12c;
+    --ok: #33c46a;
+    --radius: 12px;
+    --type-steel: #3987e5;
+    --type-upholstery: #d95926;
+    --type-timber: #199e70;
+    --type-aluminium: #c98500;
+  }
+  *{ box-sizing: border-box; }
+  [hidden]{ display: none !important; }
+  html, body{ height: 100%; }
+  body{
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, "IBM Plex Sans", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+  header{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: #140a10;
+    flex: 0 0 auto;
+  }
+  header img{ width: 32px; height: 32px; border-radius: 8px; }
+  header .brand{ font-weight: 700; font-size: 17px; letter-spacing: 0.2px; flex: 1 1 auto; }
+  header .brand small{ display:block; font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: 0.5px; }
+  main{
+    flex: 1 1 auto;
+    overflow-y: auto;
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px 60px;
+  }
+  .screen{ width: 100%; max-width: 980px; }
+  .screen[hidden]{ display: none; }
+  .screen.wide{ max-width: 1180px; }
+  .screen.narrow{ max-width: 480px; margin: 0 auto; }
+  h1{ font-size: 20px; margin: 0 0 6px; }
+  h2{ font-size: 16px; margin: 0 0 4px; }
+  p.sub{ color: var(--muted); margin: 0 0 20px; font-size: 14px; line-height: 1.5; }
+  .card{
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .btn{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 11px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .btn, .list-item, th, select, input{ touch-action: manipulation; }
+  .btn, .list-item, th{ -webkit-user-select: none; user-select: none; }
+  .btn:hover{ filter: brightness(1.12); }
+  .btn:disabled{ opacity: 0.5; cursor: not-allowed; filter:none; }
+  .btn.secondary{ background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn.secondary:hover{ background: var(--panel2); }
+  .btn.link{ background: transparent; color: var(--muted); border: none; padding: 6px 0; font-size: 13px; text-decoration: underline; }
+  .btn.sm{ padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+  .row{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .backrow{ margin-bottom: 16px; }
+  .list{ display: flex; flex-direction: column; gap: 8px; }
+  .list-item{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 13px 16px;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text);
+    font-size: 15px;
+    width: 100%;
+  }
+  .list-item:hover{ background: var(--panel2); border-color: var(--accent); }
+  .list-item .chev{ color: var(--muted2); }
+  .li-main{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+  .li-title{ font-weight:600; }
+  .li-sub{ font-size:12px; color:var(--muted); }
+  .empty-note{ color: var(--muted); font-size: 14px; padding: 18px 4px; text-align: center; }
+  .section-title{ font-size: 15px; margin: 0 0 8px; }
+  .refresh-note{ color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+  .error-note{
+    background: rgba(255,93,93,0.1); border: 1px solid var(--danger); color: #ffb3b3;
+    border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 10px;
+  }
+
+  /* order-count badges (never colour-only -- always carries the count as text) */
+  .order-badge{
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 999px;
+    padding: 4px 11px; font-size: 11.5px; color: var(--muted); white-space: nowrap; flex: 0 0 auto;
+    cursor: pointer;
+  }
+  .order-badge:hover{ border-color: var(--accent); }
+  .order-badge.has-orders{ color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+  /* order-inbox drop zone + cards */
+  .dropzone{
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 22px 16px; text-align: center; color: var(--muted); font-size: 13.5px;
+    cursor: pointer; transition: background .15s, border-color .15s, color .15s;
+  }
+  .dropzone.dragover{ border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+  .dropzone .dz-icon{ font-size: 26px; display:block; margin-bottom: 6px; }
+  .inbox-list{ display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .inbox-card{
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; cursor: grab;
+  }
+  .inbox-card.selected{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .inbox-card .ic-icon{ font-size: 19px; flex: 0 0 auto; }
+  .inbox-card .ic-main{ flex: 1 1 auto; min-width: 0; }
+  .inbox-card .ic-name{ font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .inbox-card .ic-sub{ font-size: 11.5px; color: var(--muted); }
+  .select-bar{
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 14px; font-size: 13.5px;
+  }
+  .select-bar b{ font-weight: 700; }
+
+  /* joinery item groups */
+  .item-filter{ margin-bottom: 12px; }
+  .group-heading{
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted2);
+    margin: 16px 0 7px; font-weight: 600;
+  }
+  .group-heading:first-child{ margin-top: 2px; }
+  .item-row{ margin-bottom: 8px; }
+  .item-row.dragover{ border-color: var(--accent); background: var(--panel2); box-shadow: 0 0 0 1px var(--accent) inset; }
+
+  /* type chips -- always paired with a text label, never colour-only
+     (see top-of-file comment on the dataviz validator result) */
+  .type-chip{ display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+  .type-chip.type-steel{ background: var(--type-steel); color: #fff; }
+  .type-chip.type-upholstery{ background: var(--type-upholstery); color: #fff; }
+  .type-chip.type-timber{ background: var(--type-timber); color: #fff; }
+  .type-chip.type-aluminium{ background: var(--type-aluminium); color: #241205; }
+
+  /* attached-order rows (View orders modal) */
+  .order-row{
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .order-row-top{ display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+  .order-row-date{ font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .order-row-meta{ font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  .order-row-notes{ font-size: 12.5px; color: var(--text); line-height: 1.4; margin-bottom: 8px; white-space: pre-wrap; }
+  .order-row-actions{ display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+  /* modals */
+  .modal-backdrop{
+    position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px;
+  }
+  .modal-backdrop[hidden]{ display: none; }
+  .modal-box{
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 12px 40px rgba(0,0,0,.4); padding: 20px 22px; max-width: 420px; width: 100%;
+    max-height: 86vh; overflow-y: auto;
+  }
+  .modal-box h2{ margin-bottom: 10px; }
+  .modal-box p{ margin: 0 0 14px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+  .field{ margin-bottom: 14px; }
+  .field label{ display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 600; }
+  .field .req{ color: var(--danger); }
+  .modal-box input[type="text"], .modal-box input[type="date"], .modal-box select, .modal-box textarea{
+    display: block; width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
+    padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text);
+  }
+  .modal-box textarea{ resize: vertical; min-height: 60px; }
+  .modal-box select{ appearance: auto; }
+  .modal-actions{ display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .modal-actions.split{ justify-content: space-between; }
+
+  #toast{
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(10px);
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    padding: 10px 16px; border-radius: 8px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+    opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease;
+    max-width: 90vw; z-index: 60;
+  }
+
+  footer.app-foot{ text-align: center; color: var(--muted2); font-size: 11px; padding: 10px 0 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <img src="./icons/icon-192.png" alt="">
+  <div class="brand">UTZLINE Sub Orders<small>Drag orders in, drag them onto a joinery item</small></div>
+  <button class="btn secondary sm" id="headerRefreshBtn" type="button" hidden>&#8635; Refresh</button>
+</header>
+
+<main>
+
+  <!-- ---- Setup: no Projects folder chosen yet ---- -->
+  <div class="screen narrow" id="screen-setup">
+    <h1>Choose your Projects folder</h1>
+    <p class="sub">Same Projects-root folder every UTZLINE app shares. This app needs <b>read/write</b> access, since attaching an order writes it onto that joinery item's own page.</p>
+    <button class="btn" id="chooseRootBtn" type="button">Choose Projects folder…</button>
+    <div class="error-note" id="setupError" hidden></div>
+  </div>
+
+  <!-- ---- Reconnect: a folder was chosen before but permission lapsed ---- -->
+  <div class="screen narrow" id="screen-reconnect" hidden>
+    <h1>Reconnect to your Projects folder</h1>
+    <p class="sub">Last time you used <b id="reconnectName"></b>. Your browser needs permission again before this app can read or write it.</p>
+    <div class="row">
+      <button class="btn" id="reconnectBtn" type="button">Reconnect</button>
+      <button class="btn secondary" id="reconnectChooseDifferentBtn" type="button">Choose a different folder</button>
+    </div>
+  </div>
+
+  <!-- ---- HOME ---- -->
+  <div class="screen" id="screen-home" hidden>
+    <h1>Sub Orders</h1>
+    <p class="sub">Drag a subcontractor order file into a project's inbox, then drag it onto the joinery item it belongs to.</p>
+    <p class="refresh-note" id="homeRefreshNote" hidden>Reading your Projects folder…</p>
+    <h2 class="section-title">Projects</h2>
+    <div class="list" id="homeList"></div>
+    <p class="empty-note" id="homeEmpty" hidden>No projects found in this folder.</p>
+    <button class="btn link" id="chooseDifferentRootBtn" type="button">Choose a different Projects folder</button>
+  </div>
+
+  <!-- ---- PROJECT DETAIL ---- -->
+  <div class="screen wide" id="screen-project" hidden>
+    <div class="row backrow">
+      <button class="btn secondary sm" id="backToHomeBtn" type="button">&larr; All projects</button>
+    </div>
+    <h1 id="projectTitle">Loading…</h1>
+    <p class="sub" id="projectSub"></p>
+
+    <div class="card">
+      <h2 class="section-title">Order inbox</h2>
+      <div class="select-bar" id="selectBar" hidden>
+        <span>Attaching <b id="selectBarName"></b> — tap a joinery item below</span>
+        <button class="btn secondary sm" id="selectBarCancelBtn" type="button">Cancel</button>
+      </div>
+      <div class="dropzone" id="inboxDropzone">
+        <span class="dz-icon">&#128230;</span>
+        Drop order files here
+        <div style="margin-top:10px;">
+          <button class="btn secondary sm" id="addOrderFileBtn" type="button">+ Add order file</button>
+        </div>
+        <input type="file" id="inboxFileInput" multiple hidden>
+      </div>
+      <div class="inbox-list" id="inboxList"></div>
+      <p class="empty-note" id="inboxEmpty" hidden>Nothing waiting — drop an order file above.</p>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Joinery items</h2>
+      <input type="text" class="item-filter" id="itemFilterInput" placeholder="Filter by item # or description…">
+      <div id="itemsContainer"></div>
+      <p class="empty-note" id="itemsEmpty" hidden>No joinery items match.</p>
+    </div>
+  </div>
+
+</main>
+
+<footer class="app-foot">UTZLINE Sub Orders — v1, read/write against your Projects folder</footer>
+
+<!-- ---- Attach order modal ---- -->
+<div class="modal-backdrop" id="attachBackdrop" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="attachTitle">
+    <h2 id="attachTitle">Attach order</h2>
+    <p><b id="attachFileName"></b> → <span id="attachContext"></span></p>
+    <div class="field">
+      <label for="attachType">Type <span class="req">*</span></label>
+      <select id="attachType">
+        <option value="">Choose one…</option>
+        <option value="steel">Steel</option>
+        <option value="upholstery">Upholstery</option>
+        <option value="timber">Timber</option>
+        <option value="aluminium">Aluminium</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="attachDate">Required by <span class="req">*</span></label>
+      <input type="date" id="attachDate">
+    </div>
+    <div class="field">
+      <label for="attachSupplier">Supplier / subcontractor</label>
+      <input type="text" id="attachSupplier" placeholder="e.g. Acme Steel">
+    </div>
+    <div class="field">
+      <label for="attachPo">PO / order number</label>
+      <input type="text" id="attachPo" placeholder="e.g. PO-4021">
+    </div>
+    <div class="field">
+      <label for="attachNotes">Notes</label>
+      <textarea id="attachNotes" placeholder="Anything worth noting about this order"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="attachCancelBtn" type="button">Cancel</button>
+      <button class="btn" id="attachSubmitBtn" type="button" disabled>Attach</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---- View orders modal (per joinery item) ---- -->
+<div class="modal-backdrop" id="viewOrdersBackdrop" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="viewOrdersTitle" style="max-width:480px;">
+    <h2 id="viewOrdersTitle"></h2>
+    <div id="viewOrdersList"></div>
+    <p class="empty-note" id="viewOrdersEmpty" hidden>No orders attached to this item.</p>
+    <div class="modal-actions">
+      <button class="btn secondary" id="viewOrdersCloseBtn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---- generic confirm modal ---- -->
+<div class="modal-backdrop" id="confirmBackdrop" hidden>
+  <div class="modal-box" role="alertdialog" aria-modal="true" aria-labelledby="confirmMsg" style="max-width:340px;">
+    <p id="confirmMsg" style="color:var(--text);"></p>
+    <div class="modal-actions">
+      <button class="btn secondary" id="confirmCancelBtn" type="button">Cancel</button>
+      <button class="btn" id="confirmOkBtn" type="button">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+   * SMALL UTILITIES
+   * ============================================================ */
+  function escapeHtml(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return { "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;" }[c];
+    });
+  }
+  function pause(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function sanitizeFileBase(name){
+    var cleaned = String(name || "")
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, "")
+      .trim()
+      .replace(/^[._]+|[._\s]+$/g, "");
+    return cleaned.slice(0, 120) || "file";
+  }
+  function uuid(){
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  }
+  function itemKey(level, room, joineryId){ return (level||"") + "\u0000" + (room||"") + "\u0000" + (joineryId||""); }
+  function orderFileNameFor(level, room, joineryId){
+    return sanitizeFileBase(level) + " - " + sanitizeFileBase(room) + " - " + sanitizeFileBase(joineryId) + ".json";
+  }
+  var ORDER_TYPES = [
+    { key: "steel", label: "Steel" },
+    { key: "upholstery", label: "Upholstery" },
+    { key: "timber", label: "Timber" },
+    { key: "aluminium", label: "Aluminium" }
+  ];
+  function typeLabel(key){
+    for (var i = 0; i < ORDER_TYPES.length; i++){ if (ORDER_TYPES[i].key === key) return ORDER_TYPES[i].label; }
+    return key || "";
+  }
+  function formatDate(iso, dateOnly){
+    if (!iso) return "";
+    try{
+      if (dateOnly || /^\d{4}-\d{2}-\d{2}$/.test(iso)){
+        var parts = iso.slice(0,10).split("-");
+        var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return d.toLocaleDateString(undefined, { day:"numeric", month:"short", year:"numeric" });
+      }
+      return new Date(iso).toLocaleDateString(undefined, { day:"numeric", month:"short", year:"numeric" });
+    }catch(e){ return iso; }
+  }
+
+  /* ---- toast ---- */
+  var toastEl = document.getElementById("toast");
+  function showToast(msg, durationMs){
+    toastEl.textContent = msg;
+    toastEl.style.opacity = "1";
+    toastEl.style.transform = "translateX(-50%) translateY(0)";
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function(){
+      toastEl.style.opacity = "0";
+      toastEl.style.transform = "translateX(-50%) translateY(20px)";
+    }, durationMs || 3200);
+  }
+
+  /* ---- generic confirm modal ---- */
+  var confirmBackdrop = document.getElementById("confirmBackdrop");
+  var confirmMsgEl = document.getElementById("confirmMsg");
+  var confirmCancelBtn = document.getElementById("confirmCancelBtn");
+  var confirmOkBtn = document.getElementById("confirmOkBtn");
+  var confirmResolve = null;
+  function showConfirm(msg){
+    confirmMsgEl.textContent = msg;
+    confirmBackdrop.hidden = false;
+    return new Promise(function(resolve){ confirmResolve = resolve; });
+  }
+  confirmCancelBtn.addEventListener("click", function(){
+    confirmBackdrop.hidden = true;
+    if (confirmResolve) confirmResolve(false);
+    confirmResolve = null;
+  });
+  confirmOkBtn.addEventListener("click", function(){
+    confirmBackdrop.hidden = true;
+    if (confirmResolve) confirmResolve(true);
+    confirmResolve = null;
+  });
+
+  /* ============================================================
+   * FILE SYSTEM ACCESS -- READ LAYER
+   * ============================================================ */
+  var READ_RETRY_MS = 250;
+  function isNotFoundErr(err){ return !!(err && (err.name === "NotFoundError" || err.name === "TypeMismatchError")); }
+  function readFailedErr(what, err){ var e = new Error("Couldn't read " + what + (err && err.message ? " (" + err.message + ")" : "")); e.code = "read_failed"; e.cause = err; return e; }
+  function isReadFailed(err){ return !!(err && err.code === "read_failed"); }
+
+  function readTextFileStrict(dirHandle, fileName, what, parse){
+    function attempt(){
+      return dirHandle.getFileHandle(fileName, { create: false }).then(function(fh){
+        return fh.getFile().then(function(file){ return file.text(); }).then(function(text){
+          var value;
+          try{ value = parse ? parse(text) : text; }catch(e){ return Promise.reject(readFailedErr(what, e)); }
+          return { found: true, value: value };
+        }, function(err){ return Promise.reject(isReadFailed(err) ? err : readFailedErr(what, err)); });
+      }, function(err){
+        if (isNotFoundErr(err)) return { found: false, value: null };
+        return Promise.reject(readFailedErr(what, err));
+      });
+    }
+    return attempt().catch(function(){ return pause(READ_RETRY_MS).then(attempt); });
+  }
+  function readJsonArrayFileStrict(dirHandle, fileName, what){
+    return readTextFileStrict(dirHandle, fileName, what, function(text){
+      var parsed = JSON.parse(text);
+      if (!Array.isArray(parsed)) throw new Error("not a JSON array");
+      return parsed;
+    }).then(function(res){ return res.found ? res.value : []; });
+  }
+  function listSubdirNames(dirHandle){
+    if (!dirHandle || typeof dirHandle.values !== "function") return Promise.resolve([]);
+    var names = [];
+    var iter = dirHandle.values();
+    function step(){
+      return iter.next().then(function(res){
+        if (res.done) return names;
+        if (res.value && res.value.kind === "directory") names.push(res.value.name);
+        return step();
+      });
+    }
+    return step().then(function(list){
+      list.sort(function(a, b){ return a.localeCompare(b, undefined, { sensitivity: "base" }); });
+      return list;
+    });
+  }
+  function listJsonFileHandlesIn(dirH){
+    if (!dirH || typeof dirH.values !== "function") return Promise.resolve([]);
+    var handles = [];
+    var iter = dirH.values();
+    function step(){
+      return iter.next().then(function(res){
+        if (res.done) return handles;
+        if (res.value && res.value.kind === "file" && /\.json$/i.test(res.value.name)) handles.push(res.value);
+        return step();
+      });
+    }
+    return step();
+  }
+  function readJsonFile(fh){
+    return fh.getFile().then(function(file){ return file.text(); }).then(function(text){
+      try{ var parsed = JSON.parse(text); return parsed; }catch(e){ return null; }
+    }, function(){ return null; });
+  }
+  function anySubfolderMatches(dirHandle, names, predicate, i){
+    i = i || 0;
+    if (i >= names.length) return Promise.resolve(false);
+    return dirHandle.getDirectoryHandle(names[i]).then(function(childHandle){
+      return predicate(childHandle);
+    }).catch(function(){ return false; }).then(function(matched){
+      if (matched) return true;
+      return anySubfolderMatches(dirHandle, names, predicate, i + 1);
+    });
+  }
+  // Same "is this a project folder" sniff as every sibling reader --
+  // recognised by ANY ONE of project-meta.json, joinery-items.json, or a
+  // "Project Saves" folder.
+  function isProjectShaped(dirHandle){
+    return dirHandle.getFileHandle("project-meta.json").then(function(){ return true; }, function(){
+      return dirHandle.getFileHandle("joinery-items.json").then(function(){ return true; }, function(){
+        return dirHandle.getDirectoryHandle("Project Saves").then(function(){ return true; }, function(){ return false; });
+      });
+    });
+  }
+  function detectFolderShape(dirHandle){
+    return isProjectShaped(dirHandle).then(function(isProject){
+      if (isProject) return "project";
+      return listSubdirNames(dirHandle).then(function(names){
+        if (!names.length) return "empty";
+        return anySubfolderMatches(dirHandle, names, isProjectShaped).then(function(hasProjectChild){
+          return hasProjectChild ? "root" : "unknown";
+        });
+      });
+    });
+  }
+  function listExistingProjects(rootHandle){ return listSubdirNames(rootHandle); }
+
+  function readProjectMeta(dirHandle){
+    return readTextFileStrict(dirHandle, "project-meta.json", "project-meta.json", function(text){
+      var parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== "object") throw new Error("not a JSON object");
+      return {
+        no: String(parsed.no || ""),
+        name: String(parsed.name || ""),
+        contractor: String(parsed.contractor || ""),
+        projectManager: String(parsed.projectManager || "")
+      };
+    }).then(function(res){ return res.found ? res.value : null; });
+  }
+  function readProjectItems(projectHandle){
+    return readJsonArrayFileStrict(projectHandle, "joinery-items.json", "joinery-items.json").then(function(raw){
+      return raw.map(function(it){
+        return {
+          level: it.level || "",
+          room: it.room || "",
+          joineryId: it.joineryId || "",
+          description: it.description || ""
+        };
+      });
+    });
+  }
+
+  /* ---- Sub Orders' own folder, read side (never creates anything) ---- */
+  function tryChain(rootHandle, names){
+    var p = Promise.resolve(rootHandle);
+    names.forEach(function(name){
+      p = p.then(function(h){
+        if (!h) return null;
+        return h.getDirectoryHandle(name, { create: false }).then(function(x){ return x; }, function(err){
+          if (isNotFoundErr(err)) return null;
+          return Promise.reject(readFailedErr(name + " folder", err));
+        });
+      });
+    });
+    return p;
+  }
+  function tryInboxDir(projectHandle){ return tryChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Inbox"]); }
+  function tryFilesDir(projectHandle){ return tryChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Files"]); }
+  function tryOrdersDir(projectHandle){ return tryChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Orders"]); }
+
+  function listInboxOrders(projectHandle){
+    return tryInboxDir(projectHandle).then(function(dirH){
+      if (!dirH) return [];
+      return listJsonFileHandlesIn(dirH).then(function(handles){ return Promise.all(handles.map(readJsonFile)); });
+    }).then(function(list){ return list.filter(function(r){ return r && r.id; }); });
+  }
+  function readAttachedOrders(projectHandle, level, room, joineryId){
+    return tryOrdersDir(projectHandle).then(function(dirH){
+      if (!dirH) return [];
+      return dirH.getFileHandle(orderFileNameFor(level, room, joineryId), { create: false }).then(function(fh){
+        return readJsonFile(fh);
+      }, function(err){
+        if (isNotFoundErr(err)) return [];
+        return Promise.reject(readFailedErr("attached orders", err));
+      });
+    }).then(function(arr){ return Array.isArray(arr) ? arr : []; });
+  }
+  // Reads every file in Orders/ ONCE and keys the result by the item
+  // identity stored inside each order (not by re-parsing the filename --
+  // trusting the JSON content is safer than reversing " - "-joined
+  // names, which is lossy if a level/room/code itself contains " - ").
+  // Cost is proportional to how many ITEMS have at least one order, not
+  // to how many items exist in the project.
+  function listAllAttachedOrders(projectHandle){
+    return tryOrdersDir(projectHandle).then(function(dirH){
+      if (!dirH) return {};
+      return listJsonFileHandlesIn(dirH).then(function(handles){
+        return Promise.all(handles.map(readJsonFile));
+      }).then(function(arrays){
+        var map = {};
+        (arrays || []).forEach(function(arr){
+          if (!Array.isArray(arr) || !arr.length) return;
+          var first = arr[0];
+          map[itemKey(first.level, first.room, first.joineryId)] = arr;
+        });
+        return map;
+      });
+    });
+  }
+
+  function readProjectSummary(rootHandle, folderName){
+    return rootHandle.getDirectoryHandle(folderName, { create: false }).then(function(projectHandle){
+      return Promise.all([
+        readProjectMeta(projectHandle).catch(function(){ return null; }),
+        listInboxOrders(projectHandle).catch(function(){ return []; })
+      ]).then(function(r){
+        return {
+          folderName: folderName,
+          no: (r[0] && r[0].no) || "",
+          name: (r[0] && r[0].name) || folderName,
+          contractor: (r[0] && r[0].contractor) || "",
+          projectManager: (r[0] && r[0].projectManager) || "",
+          pendingCount: r[1].length
+        };
+      });
+    });
+  }
+  function readAllProjectSummaries(rootHandle){
+    return listExistingProjects(rootHandle).then(function(names){
+      return Promise.all(names.map(function(name){
+        return readProjectSummary(rootHandle, name).catch(function(){
+          return { folderName: name, no: "", name: name, contractor: "", projectManager: "", pendingCount: 0, failed: true };
+        });
+      }));
+    });
+  }
+  function readProjectDetail(rootHandle, folderName){
+    return rootHandle.getDirectoryHandle(folderName, { create: false }).then(function(projectHandle){
+      return Promise.all([
+        readProjectMeta(projectHandle),
+        readProjectItems(projectHandle),
+        listInboxOrders(projectHandle),
+        listAllAttachedOrders(projectHandle)
+      ]).then(function(r){
+        return {
+          projectHandle: projectHandle,
+          folderName: folderName,
+          no: (r[0] && r[0].no) || "",
+          name: (r[0] && r[0].name) || folderName,
+          contractor: (r[0] && r[0].contractor) || "",
+          projectManager: (r[0] && r[0].projectManager) || "",
+          items: r[1],
+          inbox: r[2],
+          attachedMap: r[3]
+        };
+      });
+    });
+  }
+
+  /* ---- Sub Orders' own folder, write side ---- */
+  function ensureChain(rootHandle, names){
+    var p = Promise.resolve(rootHandle);
+    names.forEach(function(name){ p = p.then(function(h){ return h.getDirectoryHandle(name, { create: true }); }); });
+    return p;
+  }
+  function ensureInboxDir(projectHandle){ return ensureChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Inbox"]); }
+  function ensureFilesDir(projectHandle){ return ensureChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Files"]); }
+  function ensureOrdersDir(projectHandle){ return ensureChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Orders"]); }
+
+  function writeJsonFile(dirHandle, fileName, data){
+    return dirHandle.getFileHandle(fileName, { create: true }).then(function(fh){
+      return fh.createWritable();
+    }).then(function(w){
+      return w.write(JSON.stringify(data, null, 2)).then(function(){ return w.close(); });
+    });
+  }
+  function writeInboxRecord(projectHandle, rec){
+    return ensureInboxDir(projectHandle).then(function(dirH){ return writeJsonFile(dirH, rec.id + ".json", rec); });
+  }
+  function deleteInboxRecord(projectHandle, id){
+    return tryInboxDir(projectHandle).then(function(dirH){
+      if (!dirH) return;
+      return dirH.removeEntry(id + ".json").catch(function(){});
+    });
+  }
+  function writeAttachedOrders(projectHandle, level, room, joineryId, ordersArray){
+    return ensureOrdersDir(projectHandle).then(function(dirH){ return writeJsonFile(dirH, orderFileNameFor(level, room, joineryId), ordersArray); });
+  }
+  function writeOrderFileBytes(projectHandle, storedFileName, data){
+    return ensureFilesDir(projectHandle).then(function(dirH){ return dirH.getFileHandle(storedFileName, { create: true }); }).then(function(fh){
+      return fh.createWritable();
+    }).then(function(w){
+      return w.write(data).then(function(){ return w.close(); });
+    });
+  }
+  function deleteOrderFileBytes(projectHandle, storedFileName){
+    return tryFilesDir(projectHandle).then(function(dirH){
+      if (!dirH) return;
+      return dirH.removeEntry(storedFileName).catch(function(){});
+    });
+  }
+
+  function addInboxOrderFromFile(projectHandle, file){
+    var id = uuid();
+    var storedName = id + "-" + sanitizeFileBase(file.name || "order");
+    var filePath = "Project Saves/UTZLINE Sub Orders/Files/" + storedName;
+    return file.arrayBuffer().then(function(buf){
+      return writeOrderFileBytes(projectHandle, storedName, buf);
+    }).then(function(){
+      var rec = {
+        id: id,
+        fileName: file.name || "order",
+        filePath: filePath,
+        storedName: storedName,
+        fileSize: file.size || 0,
+        droppedAt: new Date().toISOString()
+      };
+      return writeInboxRecord(projectHandle, rec).then(function(){ return rec; });
+    });
+  }
+  // A real, permanent delete -- an inbox entry that was never attached to
+  // anything is very likely just a wrongly-dropped file (see top-of-file
+  // comment on why this differs from Unattach, which never deletes).
+  function removeInboxOrder(projectHandle, rec){
+    return deleteInboxRecord(projectHandle, rec.id).then(function(){ return deleteOrderFileBytes(projectHandle, rec.storedName); });
+  }
+  function attachOrderToItem(projectHandle, item, pendingRec, fields){
+    var order = {
+      id: pendingRec.id,
+      type: fields.type,
+      requiredByDate: fields.requiredByDate,
+      supplier: fields.supplier || "",
+      poNumber: fields.poNumber || "",
+      notes: fields.notes || "",
+      fileName: pendingRec.fileName,
+      filePath: pendingRec.filePath,
+      storedName: pendingRec.storedName,
+      level: item.level, room: item.room, joineryId: item.joineryId,
+      attachedAt: new Date().toISOString()
+    };
+    return readAttachedOrders(projectHandle, item.level, item.room, item.joineryId).then(function(existing){
+      existing.push(order);
+      return writeAttachedOrders(projectHandle, item.level, item.room, item.joineryId, existing);
+    }).then(function(){
+      return deleteInboxRecord(projectHandle, pendingRec.id);
+    }).then(function(){ return order; });
+  }
+  // Moves an attached order back to the inbox -- the file is kept,
+  // nothing is deleted (see top-of-file comment).
+  function unattachOrder(projectHandle, order){
+    return readAttachedOrders(projectHandle, order.level, order.room, order.joineryId).then(function(existing){
+      var remaining = existing.filter(function(o){ return o.id !== order.id; });
+      return writeAttachedOrders(projectHandle, order.level, order.room, order.joineryId, remaining);
+    }).then(function(){
+      var rec = {
+        id: order.id, fileName: order.fileName, filePath: order.filePath,
+        storedName: order.storedName, fileSize: 0, droppedAt: order.attachedAt
+      };
+      return writeInboxRecord(projectHandle, rec).then(function(){ return rec; });
+    });
+  }
+
+  /* ============================================================
+   * FOLDER PICKER + PERSISTENCE (own IndexedDB, "readwrite" mode --
+   * this app writes an order onto a joinery item's own page)
+   * ============================================================ */
+  var DB_NAME = "utzline-sub-orders-db", STORE = "session";
+  var idbConnP = null;
+  function idbOpen(){
+    if (idbConnP) return idbConnP;
+    idbConnP = new Promise(function(res, rej){
+      try{
+        var r = indexedDB.open(DB_NAME, 1);
+        r.onupgradeneeded = function(){ r.result.createObjectStore(STORE); };
+        r.onsuccess = function(){
+          var db = r.result;
+          db.onversionchange = function(){ db.close(); idbConnP = null; };
+          db.onclose = function(){ idbConnP = null; };
+          res(db);
+        };
+        r.onerror = function(){ idbConnP = null; rej(r.error); };
+      }catch(e){ idbConnP = null; rej(e); }
+    });
+    return idbConnP;
+  }
+  function idbSet(key, val){
+    return idbOpen().then(function(db){
+      return new Promise(function(res, rej){
+        var tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).put(val, key);
+        tx.oncomplete = function(){ res(); };
+        tx.onerror = function(){ rej(tx.error); };
+      });
+    });
+  }
+  function idbGet(key){
+    return idbOpen().then(function(db){
+      return new Promise(function(res, rej){
+        var tx = db.transaction(STORE, "readonly");
+        var rq = tx.objectStore(STORE).get(key);
+        rq.onsuccess = function(){ res(rq.result); };
+        rq.onerror = function(){ rej(rq.error); };
+      });
+    });
+  }
+  function folderPickerErrorMessage(err){
+    if (err && err.name === "SecurityError"){
+      return "Folder access isn't available in this embedded preview. Open the self-hosted or installed version of this app to use your Projects folder.";
+    }
+    return "Couldn't open the folder picker -- try again.";
+  }
+
+  var state = { root: null, rootName: "", project: null, selectedInboxId: null, viewingItem: null };
+
+  var setupError = document.getElementById("setupError");
+  var reconnectName = document.getElementById("reconnectName");
+  var chooseRootBtn = document.getElementById("chooseRootBtn");
+  var chooseDifferentRootBtn = document.getElementById("chooseDifferentRootBtn");
+  var reconnectBtn = document.getElementById("reconnectBtn");
+  var reconnectChooseDifferentBtn = document.getElementById("reconnectChooseDifferentBtn");
+  var headerRefreshBtn = document.getElementById("headerRefreshBtn");
+
+  function pickRootFolder(){
+    return window.showDirectoryPicker({ id: "utzline-sub-orders-root", mode: "readwrite" }).then(function(handle){
+      return detectFolderShape(handle).then(function(shape){
+        if (shape === "level" || shape === "project"){
+          setupError.hidden = false;
+          setupError.textContent = "That looks like a single " + (shape === "level" ? "level's" : "project's") + " own folder, not your Projects folder. Choose the top-level folder that contains all your projects.";
+          return;
+        }
+        state.root = handle; state.rootName = handle.name;
+        return idbSet("rootHandle", handle).catch(function(err){
+          console.error("Remembering the Projects folder failed (this session carries on):", err);
+        }).then(function(){
+          showScreen("home");
+          return loadHome();
+        });
+      });
+    });
+  }
+  chooseRootBtn.addEventListener("click", function(){
+    setupError.hidden = true;
+    pickRootFolder().catch(function(err){
+      if (err && err.name === "AbortError") return;
+      console.error("Choose Projects folder failed:", err);
+      setupError.hidden = false;
+      setupError.textContent = folderPickerErrorMessage(err);
+    });
+  });
+  chooseDifferentRootBtn.addEventListener("click", function(){
+    pickRootFolder().catch(function(err){
+      if (err && err.name === "AbortError") return;
+      console.error("Choose Projects folder failed:", err);
+      showToast(folderPickerErrorMessage(err));
+    });
+  });
+  reconnectChooseDifferentBtn.addEventListener("click", function(){
+    pickRootFolder().catch(function(err){
+      if (err && err.name === "AbortError") return;
+      console.error("Choose Projects folder failed:", err);
+      showToast(folderPickerErrorMessage(err));
+    });
+  });
+  reconnectBtn.addEventListener("click", function(){
+    if (!state.root) return;
+    state.root.requestPermission({ mode: "readwrite" }).then(function(perm){
+      if (perm !== "granted") return;
+      showScreen("home");
+      return loadHome();
+    }).catch(function(err){
+      console.error("Reconnect failed:", err);
+      showToast("Couldn't reconnect — try Choose a different folder.");
+    });
+  });
+
+  /* ============================================================
+   * SCREENS
+   * ============================================================ */
+  var SCREENS = ["setup", "reconnect", "home", "project"];
+  function showScreen(name){
+    SCREENS.forEach(function(s){ document.getElementById("screen-" + s).hidden = (s !== name); });
+    headerRefreshBtn.hidden = (name === "setup" || name === "reconnect");
+  }
+  headerRefreshBtn.addEventListener("click", function(){
+    if (state.project) openProject(state.project.folderName);
+    else if (state.root) loadHome();
+  });
+
+  /* ---- HOME ---- */
+  var homeList = document.getElementById("homeList");
+  var homeEmpty = document.getElementById("homeEmpty");
+  var homeRefreshNote = document.getElementById("homeRefreshNote");
+
+  function renderHome(summaries){
+    homeList.innerHTML = "";
+    homeEmpty.hidden = summaries.length > 0;
+    summaries.forEach(function(p){
+      var row = document.createElement("button");
+      row.className = "list-item";
+      row.type = "button";
+      var sub = [p.contractor, p.projectManager].filter(Boolean).join(" · ");
+      var badge = p.pendingCount > 0
+        ? '<span class="order-badge has-orders">' + p.pendingCount + " order" + (p.pendingCount === 1 ? "" : "s") + " waiting</span>"
+        : "";
+      row.innerHTML =
+        '<div class="li-main">' +
+          '<div class="li-title">' + escapeHtml((p.no ? p.no + " — " : "") + p.name) + "</div>" +
+          (sub ? '<div class="li-sub">' + escapeHtml(sub) + "</div>" : "") +
+        "</div>" +
+        '<div class="row" style="gap:8px;">' + badge + '<span class="chev">&rsaquo;</span></div>';
+      row.addEventListener("click", function(){ openProject(p.folderName); });
+      homeList.appendChild(row);
+    });
+  }
+  function loadHome(){
+    homeRefreshNote.hidden = false;
+    return readAllProjectSummaries(state.root).then(function(summaries){
+      renderHome(summaries);
+    }).catch(function(err){
+      console.error("Loading projects failed:", err);
+      showToast("Couldn't read your Projects folder — try Refresh.");
+    }).then(function(){ homeRefreshNote.hidden = true; });
+  }
+
+  /* ---- PROJECT DETAIL ---- */
+  var backToHomeBtn = document.getElementById("backToHomeBtn");
+  var projectTitle = document.getElementById("projectTitle");
+  var projectSub = document.getElementById("projectSub");
+  var selectBar = document.getElementById("selectBar");
+  var selectBarName = document.getElementById("selectBarName");
+  var selectBarCancelBtn = document.getElementById("selectBarCancelBtn");
+  var inboxDropzone = document.getElementById("inboxDropzone");
+  var addOrderFileBtn = document.getElementById("addOrderFileBtn");
+  var inboxFileInput = document.getElementById("inboxFileInput");
+  var inboxList = document.getElementById("inboxList");
+  var inboxEmpty = document.getElementById("inboxEmpty");
+  var itemFilterInput = document.getElementById("itemFilterInput");
+  var itemsContainer = document.getElementById("itemsContainer");
+  var itemsEmpty = document.getElementById("itemsEmpty");
+
+  function openProject(folderName){
+    showScreen("project");
+    projectTitle.textContent = "Loading…";
+    projectSub.textContent = "";
+    inboxList.innerHTML = "";
+    itemsContainer.innerHTML = "";
+    selectBar.hidden = true;
+    return readProjectDetail(state.root, folderName).then(function(p){
+      state.project = p;
+      state.selectedInboxId = null;
+      projectTitle.textContent = (p.no ? p.no + " — " : "") + p.name;
+      projectSub.textContent = [p.contractor, p.projectManager].filter(Boolean).join(" · ");
+      renderInbox();
+      renderItems();
+    }).catch(function(err){
+      console.error("Opening project failed:", err);
+      projectTitle.textContent = folderName;
+      showToast("Couldn't read that project — try Refresh.");
+    });
+  }
+  backToHomeBtn.addEventListener("click", function(){ state.project = null; showScreen("home"); loadHome(); });
+  itemFilterInput.addEventListener("input", renderItems);
+
+  /* ---- inbox ---- */
+  function selectInboxOrder(id){
+    state.selectedInboxId = id;
+    selectBar.hidden = !id;
+    if (id){
+      var rec = state.project.inbox.filter(function(r){ return r.id === id; })[0];
+      selectBarName.textContent = rec ? rec.fileName : "";
+    }
+    renderInbox();
+  }
+  selectBarCancelBtn.addEventListener("click", function(){ selectInboxOrder(null); });
+
+  function renderInbox(){
+    var inbox = state.project.inbox;
+    inboxList.innerHTML = "";
+    inboxEmpty.hidden = inbox.length > 0;
+    inbox.forEach(function(rec){
+      var card = document.createElement("div");
+      card.className = "inbox-card" + (state.selectedInboxId === rec.id ? " selected" : "");
+      card.draggable = true;
+      card.innerHTML =
+        '<span class="ic-icon">&#128206;</span>' +
+        '<div class="ic-main">' +
+          '<div class="ic-name">' + escapeHtml(rec.fileName) + "</div>" +
+          '<div class="ic-sub">Added ' + formatDate(rec.droppedAt) + "</div>" +
+        "</div>" +
+        '<button class="btn secondary sm" type="button" data-role="remove">Remove</button>';
+      card.addEventListener("dragstart", function(e){
+        e.dataTransfer.setData("text/plain", rec.id);
+        e.dataTransfer.effectAllowed = "move";
+      });
+      card.addEventListener("click", function(e){
+        if (e.target && e.target.getAttribute && e.target.getAttribute("data-role") === "remove") return;
+        selectInboxOrder(state.selectedInboxId === rec.id ? null : rec.id);
+      });
+      card.querySelector('[data-role="remove"]').addEventListener("click", function(e){
+        e.stopPropagation();
+        showConfirm('Remove "' + rec.fileName + '" from the inbox? This deletes the file — it hasn\'t been attached to anything.').then(function(ok){
+          if (!ok) return;
+          removeInboxOrder(state.project.projectHandle, rec).then(function(){
+            state.project.inbox = state.project.inbox.filter(function(r){ return r.id !== rec.id; });
+            if (state.selectedInboxId === rec.id) state.selectedInboxId = null, selectBar.hidden = true;
+            renderInbox();
+            showToast("Removed.");
+          }).catch(function(err){
+            console.error("Removing inbox order failed:", err);
+            showToast("Couldn't remove that file — try again.");
+          });
+        });
+      });
+      inboxList.appendChild(card);
+    });
+  }
+
+  function handleDroppedFiles(files){
+    if (!files.length || !state.project) return;
+    var ph = state.project.projectHandle;
+    Promise.all(files.map(function(f){ return addInboxOrderFromFile(ph, f); })).then(function(recs){
+      state.project.inbox = state.project.inbox.concat(recs);
+      renderInbox();
+      showToast(recs.length + " order file" + (recs.length === 1 ? "" : "s") + " added to the inbox.");
+    }).catch(function(err){
+      console.error("Adding order file(s) failed:", err);
+      showToast("Couldn't add that file — try again.");
+    });
+  }
+  ["dragenter", "dragover"].forEach(function(evt){
+    inboxDropzone.addEventListener(evt, function(e){ e.preventDefault(); inboxDropzone.classList.add("dragover"); });
+  });
+  ["dragleave", "dragend"].forEach(function(evt){
+    inboxDropzone.addEventListener(evt, function(){ inboxDropzone.classList.remove("dragover"); });
+  });
+  inboxDropzone.addEventListener("drop", function(e){
+    e.preventDefault();
+    inboxDropzone.classList.remove("dragover");
+    var files = (e.dataTransfer && e.dataTransfer.files) ? Array.prototype.slice.call(e.dataTransfer.files) : [];
+    handleDroppedFiles(files);
+  });
+  addOrderFileBtn.addEventListener("click", function(e){ e.stopPropagation(); inboxFileInput.click(); });
+  inboxFileInput.addEventListener("change", function(){
+    var files = Array.prototype.slice.call(inboxFileInput.files || []);
+    handleDroppedFiles(files);
+    inboxFileInput.value = "";
+  });
+
+  /* ---- joinery items ---- */
+  function groupItems(items){
+    var groups = [], byLevel = {};
+    items.forEach(function(it){
+      var lvl = it.level || "(no level)";
+      if (!byLevel[lvl]){ byLevel[lvl] = { level: lvl, rooms: {} }; groups.push(byLevel[lvl]); }
+      var rm = it.room || "(no room)";
+      if (!byLevel[lvl].rooms[rm]) byLevel[lvl].rooms[rm] = [];
+      byLevel[lvl].rooms[rm].push(it);
+    });
+    return groups;
+  }
+  function renderItemRow(it){
+    var key = itemKey(it.level, it.room, it.joineryId);
+    var orders = state.project.attachedMap[key] || [];
+    var row = document.createElement("div");
+    row.className = "list-item item-row";
+    row.innerHTML =
+      '<div class="li-main">' +
+        '<div class="li-title">' + escapeHtml(it.joineryId) + "</div>" +
+        (it.description ? '<div class="li-sub">' + escapeHtml(it.description) + "</div>" : "") +
+      "</div>" +
+      '<span class="order-badge' + (orders.length ? " has-orders" : "") + '" data-role="badge">' +
+        (orders.length ? orders.length + " order" + (orders.length === 1 ? "" : "s") : "No orders") +
+      "</span>";
+    row.querySelector('[data-role="badge"]').addEventListener("click", function(e){
+      e.stopPropagation();
+      openViewOrders(it);
+    });
+    row.addEventListener("click", function(){
+      if (state.selectedInboxId){
+        var rec = state.project.inbox.filter(function(r){ return r.id === state.selectedInboxId; })[0];
+        if (rec) openAttachModal(it, rec);
+        return;
+      }
+      if ((state.project.attachedMap[key] || []).length) openViewOrders(it);
+    });
+    row.addEventListener("dragover", function(e){ e.preventDefault(); row.classList.add("dragover"); });
+    row.addEventListener("dragleave", function(){ row.classList.remove("dragover"); });
+    row.addEventListener("drop", function(e){
+      e.preventDefault();
+      row.classList.remove("dragover");
+      var id = e.dataTransfer.getData("text/plain");
+      var rec = state.project.inbox.filter(function(r){ return r.id === id; })[0];
+      if (rec) openAttachModal(it, rec);
+    });
+    return row;
+  }
+  function renderItems(){
+    var filterText = (itemFilterInput.value || "").trim().toLowerCase();
+    itemsContainer.innerHTML = "";
+    var groups = groupItems(state.project.items);
+    var shown = 0;
+    groups.forEach(function(g){
+      var roomNames = Object.keys(g.rooms).sort(function(a, b){ return a.localeCompare(b, undefined, { sensitivity: "base" }); });
+      roomNames.forEach(function(roomName){
+        var items = g.rooms[roomName].filter(function(it){
+          if (!filterText) return true;
+          return (it.joineryId + " " + it.description).toLowerCase().indexOf(filterText) !== -1;
+        });
+        if (!items.length) return;
+        var heading = document.createElement("div");
+        heading.className = "group-heading";
+        heading.textContent = g.level + " — " + roomName;
+        itemsContainer.appendChild(heading);
+        items.forEach(function(it){ itemsContainer.appendChild(renderItemRow(it)); shown++; });
+      });
+    });
+    itemsEmpty.hidden = shown > 0;
+  }
+
+  /* ---- attach order modal ---- */
+  var attachBackdrop = document.getElementById("attachBackdrop");
+  var attachFileName = document.getElementById("attachFileName");
+  var attachContext = document.getElementById("attachContext");
+  var attachTypeSel = document.getElementById("attachType");
+  var attachDateInput = document.getElementById("attachDate");
+  var attachSupplierInput = document.getElementById("attachSupplier");
+  var attachPoInput = document.getElementById("attachPo");
+  var attachNotesInput = document.getElementById("attachNotes");
+  var attachCancelBtn = document.getElementById("attachCancelBtn");
+  var attachSubmitBtn = document.getElementById("attachSubmitBtn");
+  var pendingAttach = null;
+
+  function openAttachModal(item, rec){
+    pendingAttach = { item: item, rec: rec };
+    attachFileName.textContent = rec.fileName;
+    attachContext.textContent = item.joineryId + (item.description ? " — " + item.description : "");
+    attachTypeSel.value = "";
+    attachDateInput.value = "";
+    attachSupplierInput.value = "";
+    attachPoInput.value = "";
+    attachNotesInput.value = "";
+    updateAttachSubmitEnabled();
+    attachBackdrop.hidden = false;
+  }
+  function closeAttachModal(){ attachBackdrop.hidden = true; pendingAttach = null; }
+  function updateAttachSubmitEnabled(){ attachSubmitBtn.disabled = !(attachTypeSel.value && attachDateInput.value); }
+  attachTypeSel.addEventListener("change", updateAttachSubmitEnabled);
+  attachDateInput.addEventListener("input", updateAttachSubmitEnabled);
+  attachCancelBtn.addEventListener("click", closeAttachModal);
+  attachSubmitBtn.addEventListener("click", function(){
+    if (!pendingAttach) return;
+    var item = pendingAttach.item, rec = pendingAttach.rec;
+    var fields = {
+      type: attachTypeSel.value,
+      requiredByDate: attachDateInput.value,
+      supplier: attachSupplierInput.value.trim(),
+      poNumber: attachPoInput.value.trim(),
+      notes: attachNotesInput.value.trim()
+    };
+    attachSubmitBtn.disabled = true;
+    attachOrderToItem(state.project.projectHandle, item, rec, fields).then(function(order){
+      var key = itemKey(item.level, item.room, item.joineryId);
+      if (!state.project.attachedMap[key]) state.project.attachedMap[key] = [];
+      state.project.attachedMap[key].push(order);
+      state.project.inbox = state.project.inbox.filter(function(r){ return r.id !== rec.id; });
+      selectInboxOrder(null);
+      renderInbox();
+      renderItems();
+      closeAttachModal();
+      showToast("Order attached to " + item.joineryId + ".");
+    }).catch(function(err){
+      console.error("Attaching order failed:", err);
+      attachSubmitBtn.disabled = false;
+      showToast("Couldn't attach that order — try again.");
+    });
+  });
+
+  /* ---- view orders modal ---- */
+  var viewOrdersBackdrop = document.getElementById("viewOrdersBackdrop");
+  var viewOrdersTitle = document.getElementById("viewOrdersTitle");
+  var viewOrdersList = document.getElementById("viewOrdersList");
+  var viewOrdersEmpty = document.getElementById("viewOrdersEmpty");
+  var viewOrdersCloseBtn = document.getElementById("viewOrdersCloseBtn");
+
+  function openViewOrders(item){
+    state.viewingItem = item;
+    viewOrdersTitle.textContent = item.joineryId + (item.description ? " — " + item.description : "");
+    renderViewOrdersList();
+    viewOrdersBackdrop.hidden = false;
+  }
+  function renderViewOrdersList(){
+    var item = state.viewingItem;
+    var key = itemKey(item.level, item.room, item.joineryId);
+    var orders = (state.project.attachedMap[key] || []).slice().sort(function(a, b){ return (b.attachedAt || "").localeCompare(a.attachedAt || ""); });
+    viewOrdersList.innerHTML = "";
+    viewOrdersEmpty.hidden = orders.length > 0;
+    orders.forEach(function(o){
+      var row = document.createElement("div");
+      row.className = "order-row";
+      var meta = [];
+      if (o.supplier) meta.push(escapeHtml(o.supplier));
+      if (o.poNumber) meta.push("PO " + escapeHtml(o.poNumber));
+      row.innerHTML =
+        '<div class="order-row-top">' +
+          '<span class="type-chip type-' + escapeHtml(o.type) + '">' + escapeHtml(typeLabel(o.type)) + "</span>" +
+          '<span class="order-row-date">Required by ' + formatDate(o.requiredByDate, true) + "</span>" +
+        "</div>" +
+        (meta.length ? '<div class="order-row-meta">' + meta.join(" · ") + "</div>" : "") +
+        (o.notes ? '<div class="order-row-notes">' + escapeHtml(o.notes) + "</div>" : "") +
+        '<div class="order-row-actions">' +
+          '<button class="btn link sm" type="button" data-role="open">Open file (' + escapeHtml(o.fileName) + ")</button>" +
+          '<button class="btn secondary sm" type="button" data-role="unattach">Unattach</button>' +
+        "</div>";
+      row.querySelector('[data-role="open"]').addEventListener("click", function(){ openOrderFile(o); });
+      row.querySelector('[data-role="unattach"]').addEventListener("click", function(){
+        showConfirm("Unattach this order from " + item.joineryId + "? It goes back to the inbox — the file is kept.").then(function(ok){
+          if (!ok) return;
+          unattachOrder(state.project.projectHandle, o).then(function(rec){
+            state.project.attachedMap[key] = (state.project.attachedMap[key] || []).filter(function(x){ return x.id !== o.id; });
+            state.project.inbox.push(rec);
+            renderViewOrdersList();
+            renderItems();
+            renderInbox();
+            showToast("Moved back to the inbox.");
+          }).catch(function(err){
+            console.error("Unattach failed:", err);
+            showToast("Couldn't unattach that order — try again.");
+          });
+        });
+      });
+      viewOrdersList.appendChild(row);
+    });
+  }
+  function openOrderFile(o){
+    tryFilesDir(state.project.projectHandle).then(function(dirH){
+      if (!dirH) throw new Error("no files dir");
+      return dirH.getFileHandle(o.storedName, { create: false });
+    }).then(function(fh){ return fh.getFile(); }).then(function(file){
+      var url = URL.createObjectURL(file);
+      window.open(url, "_blank");
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+    }).catch(function(err){
+      console.error("Opening order file failed:", err);
+      showToast("Couldn't open that file — it may have been moved or deleted.");
+    });
+  }
+  viewOrdersCloseBtn.addEventListener("click", function(){ viewOrdersBackdrop.hidden = true; });
+
+  /* ============================================================
+   * BOOT
+   * ============================================================ */
+  function boot(){
+    if (typeof window.showDirectoryPicker !== "function"){
+      setupError.hidden = false;
+      setupError.textContent = "This browser doesn't support the File System Access API this app needs. Use an up-to-date Chrome/Edge, or the installed app.";
+      showScreen("setup");
+      return;
+    }
+    idbGet("rootHandle").then(function(handle){
+      if (!handle){ showScreen("setup"); return; }
+      state.root = handle; state.rootName = handle.name;
+      return handle.queryPermission({ mode: "readwrite" }).then(function(perm){
+        if (perm === "granted"){
+          showScreen("home");
+          return loadHome();
+        }
+        reconnectName.textContent = state.rootName;
+        showScreen("reconnect");
+      });
+    }).catch(function(){
+      state.root = null; state.rootName = "";
+      showScreen("setup");
+    });
+  }
+  boot();
+
+  /* ============================================================
+   * TEST HOOKS -- this app ships with automated test coverage from v1
+   * (no legacy no-test period to carry forward, unlike some siblings).
+   * A fake File System Access handle (supporting create:true and
+   * createWritable, unlike the read-only fake handles used by some
+   * read-only sibling apps) lets the real read/write pipeline run
+   * end-to-end against an in-memory tree, so tests exercise actual
+   * production code -- reading, writing, attaching, unattaching -- not
+   * a mocked shortcut.
+   * ============================================================ */
+  function makeFakeHandle(node, name, kind){
+    if (kind === "file"){
+      return {
+        kind: "file", name: name, _node: node,
+        getFile: function(){
+          var n = this._node;
+          return Promise.resolve({
+            name: name,
+            size: n.bytes ? n.bytes.length : (n.text || "").length,
+            text: function(){ return Promise.resolve(n.text != null ? n.text : ""); },
+            arrayBuffer: function(){
+              if (n.bytes) return Promise.resolve(new Uint8Array(n.bytes).buffer);
+              return Promise.resolve(new TextEncoder().encode(n.text || "").buffer);
+            }
+          });
+        },
+        createWritable: function(){
+          var n = this._node;
+          return Promise.resolve({
+            write: function(data){
+              if (typeof data === "string"){ n.text = data; delete n.bytes; return Promise.resolve(); }
+              if (typeof Blob !== "undefined" && data instanceof Blob){
+                return data.arrayBuffer().then(function(buf){ n.bytes = Array.prototype.slice.call(new Uint8Array(buf)); delete n.text; });
+              }
+              var view = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer || data);
+              n.bytes = Array.prototype.slice.call(view);
+              delete n.text;
+              return Promise.resolve();
+            },
+            close: function(){ return Promise.resolve(); }
+          });
+        }
+      };
+    }
+    node.dirs = node.dirs || {};
+    node.files = node.files || {};
+    var dirs = node.dirs, files = node.files;
+    return {
+      kind: "directory", name: name || "", _node: node,
+      getDirectoryHandle: function(n, opts){
+        if (dirs[n]) return Promise.resolve(makeFakeHandle(dirs[n], n, "directory"));
+        if (opts && opts.create){ dirs[n] = { dirs: {}, files: {} }; return Promise.resolve(makeFakeHandle(dirs[n], n, "directory")); }
+        return Promise.reject(new DOMException("Not found", "NotFoundError"));
+      },
+      getFileHandle: function(n, opts){
+        if (files[n]) return Promise.resolve(makeFakeHandle(files[n], n, "file"));
+        if (opts && opts.create){ files[n] = {}; return Promise.resolve(makeFakeHandle(files[n], n, "file")); }
+        return Promise.reject(new DOMException("Not found", "NotFoundError"));
+      },
+      removeEntry: function(n){
+        if (files[n]){ delete files[n]; return Promise.resolve(); }
+        if (dirs[n]){ delete dirs[n]; return Promise.resolve(); }
+        return Promise.reject(new DOMException("Not found", "NotFoundError"));
+      },
+      values: function(){
+        var entries = Object.keys(dirs).map(function(n){ return makeFakeHandle(dirs[n], n, "directory"); })
+          .concat(Object.keys(files).map(function(n){ return makeFakeHandle(files[n], n, "file"); }));
+        var i = 0;
+        return { next: function(){ return Promise.resolve(i < entries.length ? { done: false, value: entries[i++] } : { done: true }); } };
+      },
+      queryPermission: function(){ return Promise.resolve("granted"); },
+      requestPermission: function(){ return Promise.resolve("granted"); }
+    };
+  }
+
+  window.__testHooks = {
+    ready: function(){ return true; },
+    setFakeRootForTest: function(tree){
+      state.root = makeFakeHandle(tree, "Test Projects", "directory");
+      state.rootName = "Test Projects";
+      showScreen("home");
+      return loadHome();
+    },
+    openProjectForTest: function(folderName){ return openProject(folderName); },
+    dropFilesOnInboxForTest: function(fileSpecs){
+      var files = fileSpecs.map(function(f){ return new File([f.text || ""], f.name, { type: f.type || "text/plain" }); });
+      var dt = new DataTransfer();
+      files.forEach(function(f){ dt.items.add(f); });
+      var evt = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt });
+      inboxDropzone.dispatchEvent(evt);
+      return pause(80);
+    },
+    selectInboxOrderForTest: function(index){
+      var rec = state.project.inbox[index];
+      if (rec) selectInboxOrder(rec.id);
+    },
+    clearSelectionForTest: function(){ selectInboxOrder(null); },
+    tapItemRowForTest: function(level, room, joineryId){
+      var it = state.project.items.filter(function(x){ return x.level === level && x.room === room && x.joineryId === joineryId; })[0];
+      if (!it) return false;
+      if (state.selectedInboxId){
+        var rec = state.project.inbox.filter(function(r){ return r.id === state.selectedInboxId; })[0];
+        if (rec){ openAttachModal(it, rec); return true; }
+      }
+      var key = itemKey(it.level, it.room, it.joineryId);
+      if ((state.project.attachedMap[key] || []).length){ openViewOrders(it); return true; }
+      return false;
+    },
+    fillAttachFormForTest: function(fields){
+      fields = fields || {};
+      if (fields.type != null) attachTypeSel.value = fields.type;
+      if (fields.requiredByDate != null) attachDateInput.value = fields.requiredByDate;
+      if (fields.supplier != null) attachSupplierInput.value = fields.supplier;
+      if (fields.poNumber != null) attachPoInput.value = fields.poNumber;
+      if (fields.notes != null) attachNotesInput.value = fields.notes;
+      updateAttachSubmitEnabled();
+    },
+    submitAttachFormForTest: function(){ attachSubmitBtn.click(); return pause(80); },
+    cancelAttachForTest: function(){ attachCancelBtn.click(); },
+    attachModalHidden: function(){ return attachBackdrop.hidden; },
+    attachSubmitDisabled: function(){ return attachSubmitBtn.disabled; },
+    inboxCountForTest: function(){ return state.project ? state.project.inbox.length : 0; },
+    itemBadgeCountForTest: function(level, room, joineryId){
+      var key = itemKey(level, room, joineryId);
+      return (state.project.attachedMap[key] || []).length;
+    },
+    homeRowsTextForTest: function(){
+      return Array.prototype.map.call(homeList.querySelectorAll(".list-item"), function(el){ return el.textContent; });
+    },
+    openViewOrdersForTest: function(level, room, joineryId){
+      var it = state.project.items.filter(function(x){ return x.level === level && x.room === room && x.joineryId === joineryId; })[0];
+      if (it) openViewOrders(it);
+    },
+    viewOrdersListTextForTest: function(){ return viewOrdersList.textContent; },
+    viewOrdersBackdropHidden: function(){ return viewOrdersBackdrop.hidden; },
+    closeViewOrdersForTest: function(){ viewOrdersCloseBtn.click(); },
+    clickUnattachForTest: function(index){
+      var btn = viewOrdersList.querySelectorAll('[data-role="unattach"]')[index];
+      if (btn) btn.click();
+      return pause(30);
+    },
+    clickRemoveInboxCardForTest: function(index){
+      var btn = inboxList.querySelectorAll('[data-role="remove"]')[index];
+      if (btn) btn.click();
+      return pause(30);
+    },
+    confirmYesForTest: function(){ confirmOkBtn.click(); return pause(60); },
+    confirmNoForTest: function(){ confirmCancelBtn.click(); },
+    confirmBackdropHidden: function(){ return confirmBackdrop.hidden; },
+    dumpFakeTreeForTest: function(){ return JSON.parse(JSON.stringify(state.root && state.root._node)); }
+  };
+})();
+</script>
+</body>
+</html>
