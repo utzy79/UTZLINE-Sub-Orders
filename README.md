@@ -1,6 +1,8 @@
 # UTZLINE Sub Orders — installable app
 
-**Current version: v1** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+**Current version: v2** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+
+**v2 (2026-09-27, same day) — drag straight onto the joinery item.** Andrew asked, right after seeing v1: *"can we drag in straight onto the joinery item"* — v1 always needed a file to land in the Order inbox first, then be dragged (or tap-selected) onto an item as a second step. v2 adds a third path: drop a file directly from the OS onto a joinery item row and the **Attach order** dialog opens immediately for that item, no inbox step in between. Under the hood it's still the same write as any other drop — the file genuinely lands in the inbox first — so cancelling the dialog loses nothing; the file just sits in the inbox instead. Dropping several files onto one item opens the dialog for the first, and the rest wait in the inbox for their own turn. New regression coverage added to the same test file for this path (dropping onto an item directly, verified end-to-end against the real on-disk write) — all checks pass.
 
 **v1 (2026-09-27) — first release.** Andrew, verbatim: *"we need a sub contractor orders app. where we can drag and drop orders into it, utilise the same menu style as all others, drag orders onto a joinery item and it asks what is it (steel, upholstery, timber, aluminium) and a required by date. this then attaches the order to the joinery item page. (build this app first before we add this to the others)"*
 

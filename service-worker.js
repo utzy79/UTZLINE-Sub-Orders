@@ -52,8 +52,15 @@
 // `Project Saves/UTZLINE Sub Orders/` folder, which no other app reads
 // yet (that integration is the deliberately separate next round Andrew
 // asked for).
+//
+// v2 (2026-09-27, same day): "can we drag in straight onto the joinery
+// item" -- added a third path alongside the inbox-then-attach flow:
+// drop a file directly from the OS onto a joinery item row and the
+// Attach order dialog opens immediately, no inbox step in between
+// (though the file still lands in the inbox for real under the hood, so
+// cancelling the dialog loses nothing).
 var ICON_VERSION = "v1";
-var CACHE_NAME = "utzline-sub-orders-cache-v1";
+var CACHE_NAME = "utzline-sub-orders-cache-v2";
 
 var PRECACHE_URLS = [
   "./",

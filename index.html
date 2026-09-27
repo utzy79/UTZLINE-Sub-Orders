@@ -103,6 +103,29 @@
   and writes only its own new "Project Saves/UTZLINE Sub Orders/" folder,
   which no other app reads yet -- that cross-app wiring is deliberately
   the separate next round.
+
+  ****************************************************************
+  * v2 (2026-09-27, same day) -- DRAG STRAIGHT ONTO THE ITEM.       *
+  * Andrew: "can we drag in straight onto the joinery item".         *
+  ****************************************************************
+
+  v1 always needed a file to land in the Order inbox first, then be
+  dragged (or tap-selected) onto a joinery item as a second step. This
+  adds a THIRD path: drop a file directly from the OS onto a joinery
+  item row and the Attach order dialog opens immediately for that item
+  -- no inbox step in between. Under the hood it's the same
+  addInboxOrderFromFile() write as any other drop (the file genuinely
+  lands in the inbox first), so if the dialog gets cancelled nothing is
+  lost -- the file is just sitting in the inbox instead, exactly as if
+  it had been dropped there to begin with. Dropping several files at
+  once onto one item opens the dialog for the first; the rest wait in
+  the inbox for their own turn (one order = one dialog, since each order
+  needs its own type/date/etc).
+
+  Distinguished from an inbox card being dragged over the same row (an
+  internal drag carrying only a text/plain id, no real Files) by
+  checking e.dataTransfer.files.length in the row's own drop handler --
+  a real OS file drop has files; an internal card drag doesn't.
 -->
 <html lang="en">
 <head>
@@ -400,6 +423,7 @@
 
     <div class="card">
       <h2 class="section-title">Joinery items</h2>
+      <p class="refresh-note" style="margin-bottom:12px;">Drag an order file straight onto an item below, or drag/tap an inbox card above.</p>
       <input type="text" class="item-filter" id="itemFilterInput" placeholder="Filter by item # or description…">
       <div id="itemsContainer"></div>
       <p class="empty-note" id="itemsEmpty" hidden>No joinery items match.</p>
@@ -408,7 +432,7 @@
 
 </main>
 
-<footer class="app-foot">UTZLINE Sub Orders — v1, read/write against your Projects folder</footer>
+<footer class="app-foot">UTZLINE Sub Orders — v2, read/write against your Projects folder</footer>
 
 <!-- ---- Attach order modal ---- -->
 <div class="modal-backdrop" id="attachBackdrop" hidden>
@@ -1157,6 +1181,27 @@
       showToast("Couldn't add that file — try again.");
     });
   }
+  // A file (or files) dropped straight onto a joinery item row, skipping
+  // the inbox drop zone entirely. The file still goes through the exact
+  // same addInboxOrderFromFile() write as any other drop -- it lands in
+  // the inbox for real -- so if the Attach dialog that opens next gets
+  // cancelled, nothing is lost; it's just sitting in the inbox instead,
+  // same as if it had been dropped there in the first place. With more
+  // than one file, only the first opens the Attach dialog (one order =
+  // one dialog); the rest wait in the inbox for their own turn.
+  function handleFilesDroppedOnItem(item, files){
+    if (!files.length || !state.project) return;
+    var ph = state.project.projectHandle;
+    Promise.all(files.map(function(f){ return addInboxOrderFromFile(ph, f); })).then(function(recs){
+      state.project.inbox = state.project.inbox.concat(recs);
+      renderInbox();
+      if (recs.length > 1) showToast(recs.length + " files added — attaching the first now, the rest are waiting in the inbox.");
+      openAttachModal(item, recs[0]);
+    }).catch(function(err){
+      console.error("Adding order file(s) onto an item failed:", err);
+      showToast("Couldn't add that file — try again.");
+    });
+  }
   ["dragenter", "dragover"].forEach(function(evt){
     inboxDropzone.addEventListener(evt, function(e){ e.preventDefault(); inboxDropzone.classList.add("dragover"); });
   });
@@ -1215,9 +1260,23 @@
     });
     row.addEventListener("dragover", function(e){ e.preventDefault(); row.classList.add("dragover"); });
     row.addEventListener("dragleave", function(){ row.classList.remove("dragover"); });
+    // A drop here is one of two things: an inbox card being dragged over
+    // (an internal drag -- no real Files, just a text/plain id, handled
+    // below), or a file dragged straight in from the OS/Finder/Explorer
+    // (real Files on the DataTransfer) -- added 2026-09-27 same-day as v1
+    // itself, after Andrew asked "can we drag in straight onto the
+    // joinery item" rather than always going via the inbox first. Files
+    // dropped this way still land in the inbox for real (so nothing is
+    // lost if the Attach dialog gets cancelled) -- they just skip
+    // straight to that dialog instead of waiting there.
     row.addEventListener("drop", function(e){
       e.preventDefault();
       row.classList.remove("dragover");
+      var files = (e.dataTransfer && e.dataTransfer.files) ? Array.prototype.slice.call(e.dataTransfer.files) : [];
+      if (files.length){
+        handleFilesDroppedOnItem(it, files);
+        return;
+      }
       var id = e.dataTransfer.getData("text/plain");
       var rec = state.project.inbox.filter(function(r){ return r.id === id; })[0];
       if (rec) openAttachModal(it, rec);
@@ -1495,6 +1554,22 @@
       var evt = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt });
       inboxDropzone.dispatchEvent(evt);
       return pause(80);
+    },
+    // Drops real OS files straight onto a joinery item row -- the
+    // "straight onto the joinery item" path added 2026-09-27, distinct
+    // from dropFilesOnInboxForTest (which targets the inbox drop zone).
+    dropFilesOnItemForTest: function(level, room, joineryId, fileSpecs){
+      var rows = Array.prototype.slice.call(itemsContainer.querySelectorAll(".item-row"));
+      var it = state.project.items.filter(function(x){ return x.level === level && x.room === room && x.joineryId === joineryId; })[0];
+      if (!it) return Promise.resolve(false);
+      var row = rows.filter(function(r){ return r.querySelector(".li-title") && r.querySelector(".li-title").textContent === joineryId; })[0];
+      if (!row) return Promise.resolve(false);
+      var files = fileSpecs.map(function(f){ return new File([f.text || ""], f.name, { type: f.type || "text/plain" }); });
+      var dt = new DataTransfer();
+      files.forEach(function(f){ dt.items.add(f); });
+      var evt = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt });
+      row.dispatchEvent(evt);
+      return pause(80).then(function(){ return true; });
     },
     selectInboxOrderForTest: function(index){
       var rec = state.project.inbox[index];
