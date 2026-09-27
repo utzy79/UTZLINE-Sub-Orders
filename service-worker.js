@@ -92,7 +92,8 @@
 // no longer treats an unreadable, mid-sync Orders file as empty -- it
 // retries once, then writes nothing ("unreadable is not empty").
 var ICON_VERSION = "v1";
-var CACHE_NAME = "utzline-sub-orders-cache-v5";
+// v6 (2026-09-27): "Schedule Backups" folder hidden from the project list.
+var CACHE_NAME = "utzline-sub-orders-cache-v6";
 
 var PRECACHE_URLS = [
   "./",

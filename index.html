@@ -902,7 +902,14 @@
       });
     });
   }
-  function listExistingProjects(rootHandle){ return listSubdirNames(rootHandle); }
+  /* (2026-09-27) "Schedule Backups" -- Scheduler's daily spreadsheet
+     backups, kept directly in the main Projects folder -- isn't a project,
+     so it's left out of the project list (the same one-line rule is in
+     every app in the family). */
+  function isReservedRootFolderName(name){ return String(name || "").trim().toLowerCase() === "schedule backups"; }
+  function listExistingProjects(rootHandle){
+    return listSubdirNames(rootHandle).then(function(names){ return names.filter(function(n){ return !isReservedRootFolderName(n); }); });
+  }
 
   function readProjectMeta(dirHandle){
     return readTextFileStrict(dirHandle, "project-meta.json", "project-meta.json", function(text){
