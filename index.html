@@ -126,6 +126,45 @@
   internal drag carrying only a text/plain id, no real Files) by
   checking e.dataTransfer.files.length in the row's own drop handler --
   a real OS file drop has files; an internal card drag doesn't.
+
+  ****************************************************************
+  * v3 (2026-09-27, same day) -- LEVELS/ROOMS/ITEMS HIERARCHY,     *
+  * "mark as received" on attached orders.                         *
+  * Andrew: "and the orders app needs the same folder hierachy     *
+  * (projects / levels / rooms / joinery items)" / "we also need   *
+  * to be able to mark it as recieved on the orders app".          *
+  ****************************************************************
+
+  NAVIGATION: v1/v2 showed every joinery item in the project as one long,
+  filterable, level/room-grouped list on a single project screen. That's
+  now a proper drill-down -- Levels (screen-project) -> Rooms
+  (screen-rooms) -> Items (screen-items) -- matching the exact same
+  Projects/Levels/Rooms/Items navigation every sibling app already uses
+  (Site Measure/Viewer/ITP/UTZLINE Projects). The Order inbox stays on
+  the Levels screen, since a dropped file isn't tied to any level/room/
+  item until it's attached to one.
+
+  CONSEQUENCE, called out on purpose: the Order inbox and the joinery
+  item rows are no longer ever on the same screen together, so literal
+  HTML5 drag-and-drop of an inbox card onto an item row (the desktop
+  path in v1) is no longer physically possible -- there's nothing to
+  drag onto while the item is three screens away. The touch-friendly
+  tap-select-then-tap-item fallback (already built in v1 for tablets,
+  since native drag doesn't work well there either) is now the ONLY way
+  to attach a pending inbox order: tap the card to select it (the
+  select-bar, now a persistent element outside every screen, keeps
+  reminding you what's selected while you drill down through Rooms and
+  Items), then tap the item once you get there. Dropping a file directly
+  from the OS onto an item row (v2) is unaffected -- that only ever
+  needed the item row itself to be visible, not the inbox.
+
+  RECEIVED: an already-attached order (View orders modal) now has a
+  "Received" checkbox + date, same non-destructive toggle shape as
+  Install ITP's own "Received back on site" rework checkbox -- ticking
+  auto-fills today's date (editable after), unticking clears both
+  fields. New setOrderReceived() write, same read-modify-write shape as
+  every other write here (read the Orders/ file fresh, patch the one
+  entry, write the whole array back).
 -->
 <html lang="en">
 <head>
@@ -318,6 +357,11 @@
   .order-row-meta{ font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
   .order-row-notes{ font-size: 12.5px; color: var(--text); line-height: 1.4; margin-bottom: 8px; white-space: pre-wrap; }
   .order-row-actions{ display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  /* "Received" checkbox+date, v3 -- same non-destructive toggle shape as
+     Install ITP's "Received back on site" rework checkbox. */
+  .order-received-row{ display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text); margin-bottom: 8px; cursor: pointer; }
+  .order-received-row input[type="checkbox"]{ width: 15px; height: 15px; }
+  .modal-box .order-received-row input[type="date"]{ display: inline-block; width: auto; font-size: 12px; padding: 3px 6px; margin-left: 4px; }
 
   /* modals */
   .modal-backdrop{
@@ -364,6 +408,18 @@
   <button class="btn secondary sm" id="headerRefreshBtn" type="button" hidden>&#8635; Refresh</button>
 </header>
 
+<!-- v3 (2026-09-27): moved out of the old single project screen and up
+     here, as a sibling of every project-scoped screen (Levels/Rooms/
+     Items) -- now that attaching an inbox order means navigating down
+     through the new Levels -> Rooms -> Items hierarchy (see below), the
+     inbox card and the joinery item you're attaching to are no longer
+     ever on the same screen together, so this bar has to survive screen
+     changes to keep reminding you what's selected while you drill down. -->
+<div class="select-bar" id="selectBar" hidden>
+  <span>Attaching <b id="selectBarName"></b> — tap a joinery item below</span>
+  <button class="btn secondary sm" id="selectBarCancelBtn" type="button">Cancel</button>
+</div>
+
 <main>
 
   <!-- ---- Setup: no Projects folder chosen yet ---- -->
@@ -395,7 +451,20 @@
     <button class="btn link" id="chooseDifferentRootBtn" type="button">Choose a different Projects folder</button>
   </div>
 
-  <!-- ---- PROJECT DETAIL ---- -->
+  <!-- ---- PROJECT DETAIL (the project's own Levels list) ----
+       v3 (2026-09-27): Andrew, verbatim: "the orders app needs the same
+       folder hierachy (projects / levels / rooms / joinery items)" -- this
+       screen used to show every joinery item in the project as one long
+       filterable, level/room-grouped list. It now matches the same
+       Projects/Levels/Rooms/Items drill-down every sibling app (Site
+       Measure/Viewer/ITP/UTZLINE Projects) already uses: this screen lists
+       Levels, tapping one lists its Rooms (#screen-rooms below), tapping a
+       room lists that room's own Items (#screen-items below) -- the flat
+       list is gone. The Order inbox stays here, on the project's own
+       landing screen, since a dropped file isn't yet tied to any level/
+       room/item -- it's what you drag onto one once you've navigated to
+       it (or, on a touchscreen, what you tap-select here before drilling
+       down and tapping the item, using the persistent select-bar above). -->
   <div class="screen wide" id="screen-project" hidden>
     <div class="row backrow">
       <button class="btn secondary sm" id="backToHomeBtn" type="button">&larr; All projects</button>
@@ -405,10 +474,6 @@
 
     <div class="card">
       <h2 class="section-title">Order inbox</h2>
-      <div class="select-bar" id="selectBar" hidden>
-        <span>Attaching <b id="selectBarName"></b> — tap a joinery item below</span>
-        <button class="btn secondary sm" id="selectBarCancelBtn" type="button">Cancel</button>
-      </div>
       <div class="dropzone" id="inboxDropzone">
         <span class="dz-icon">&#128230;</span>
         Drop order files here
@@ -422,8 +487,35 @@
     </div>
 
     <div class="card">
+      <h2 class="section-title">Levels</h2>
+      <p class="sub" style="margin:0 0 12px;">Choose a level to browse its rooms.</p>
+      <div class="list" id="levelsList"></div>
+      <p class="empty-note" id="levelsEmpty" hidden>No joinery items in this project yet.</p>
+    </div>
+  </div>
+
+  <!-- ---- Rooms within a level ---- -->
+  <div class="screen wide" id="screen-rooms" hidden>
+    <div class="row backrow">
+      <button class="btn secondary sm" id="backToLevelsBtn" type="button">&larr; Levels</button>
+    </div>
+    <h1 id="roomsLevelLabel">Rooms</h1>
+    <p class="sub">Choose a room to see its joinery items.</p>
+    <div class="card">
+      <div class="list" id="roomsList"></div>
+      <p class="empty-note" id="roomsEmpty" hidden>No rooms on this level.</p>
+    </div>
+  </div>
+
+  <!-- ---- Joinery items within a room ---- -->
+  <div class="screen wide" id="screen-items" hidden>
+    <div class="row backrow">
+      <button class="btn secondary sm" id="backToRoomsBtn" type="button">&larr; Rooms</button>
+    </div>
+    <h1 id="itemsRoomLabel">Items</h1>
+    <div class="card">
       <h2 class="section-title">Joinery items</h2>
-      <p class="refresh-note" style="margin-bottom:12px;">Drag an order file straight onto an item below, or drag/tap an inbox card above.</p>
+      <p class="refresh-note" style="margin-bottom:12px;">Drag an order file straight onto an item below, or drag/tap an inbox card from this project's Levels screen.</p>
       <input type="text" class="item-filter" id="itemFilterInput" placeholder="Filter by item # or description…">
       <div id="itemsContainer"></div>
       <p class="empty-note" id="itemsEmpty" hidden>No joinery items match.</p>
@@ -432,7 +524,7 @@
 
 </main>
 
-<footer class="app-foot">UTZLINE Sub Orders — v2, read/write against your Projects folder</footer>
+<footer class="app-foot">UTZLINE Sub Orders — v3, read/write against your Projects folder</footer>
 
 <!-- ---- Attach order modal ---- -->
 <div class="modal-backdrop" id="attachBackdrop" hidden>
@@ -913,6 +1005,37 @@
       return writeInboxRecord(projectHandle, rec).then(function(){ return rec; });
     });
   }
+  // "we also need to be able to mark it as recieved on the orders app"
+  // (Andrew, 2026-09-27, v3) -- a plain toggle on an already-attached
+  // order, same non-destructive shape as Install ITP's own "Received back
+  // on site" checkbox+date on rework entries: ticking auto-fills today's
+  // date (editable), unticking clears both fields. Always re-reads the
+  // Orders/ file fresh rather than trusting in-memory state, then writes
+  // the whole array back -- same read-modify-write shape every other
+  // write here already uses (see writeAttachedOrders' callers).
+  function setOrderReceived(projectHandle, order, received, receivedDate){
+    return readAttachedOrders(projectHandle, order.level, order.room, order.joineryId).then(function(existing){
+      var updated = null;
+      var next = existing.map(function(o){
+        if (o.id !== order.id) return o;
+        updated = {
+          id: o.id, type: o.type, requiredByDate: o.requiredByDate,
+          supplier: o.supplier, poNumber: o.poNumber, notes: o.notes,
+          fileName: o.fileName, filePath: o.filePath, storedName: o.storedName,
+          level: o.level, room: o.room, joineryId: o.joineryId, attachedAt: o.attachedAt,
+          received: !!received,
+          receivedDate: received ? (receivedDate || o.receivedDate || todayISO()) : null
+        };
+        return updated;
+      });
+      return writeAttachedOrders(projectHandle, order.level, order.room, order.joineryId, next).then(function(){ return updated; });
+    });
+  }
+  function todayISO(){
+    var d = new Date();
+    function pad(n){ return n < 10 ? "0" + n : "" + n; }
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
 
   /* ============================================================
    * FOLDER PICKER + PERSISTENCE (own IndexedDB, "readwrite" mode --
@@ -964,7 +1087,7 @@
     return "Couldn't open the folder picker -- try again.";
   }
 
-  var state = { root: null, rootName: "", project: null, selectedInboxId: null, viewingItem: null };
+  var state = { root: null, rootName: "", project: null, selectedInboxId: null, viewingItem: null, activeLevel: null, activeRoom: null };
 
   var setupError = document.getElementById("setupError");
   var reconnectName = document.getElementById("reconnectName");
@@ -1030,13 +1153,47 @@
   /* ============================================================
    * SCREENS
    * ============================================================ */
-  var SCREENS = ["setup", "reconnect", "home", "project"];
+  var SCREENS = ["setup", "reconnect", "home", "project", "rooms", "items"];
+  var PROJECT_SCOPED_SCREENS = { project: true, rooms: true, items: true };
   function showScreen(name){
     SCREENS.forEach(function(s){ document.getElementById("screen-" + s).hidden = (s !== name); });
     headerRefreshBtn.hidden = (name === "setup" || name === "reconnect");
+    // The select-bar (see its own HTML comment) now lives outside every
+    // individual screen so it survives the Levels->Rooms->Items drill-down
+    // -- but that means leaving the project entirely (Home/Setup/
+    // Reconnect) has to hide it explicitly; it's no longer hidden for free
+    // just because its old parent screen got hidden.
+    if (!PROJECT_SCOPED_SCREENS[name]) selectBar.hidden = true;
+  }
+  function currentScreenName(){
+    for (var i = 0; i < SCREENS.length; i++){
+      if (!document.getElementById("screen-" + SCREENS[i]).hidden) return SCREENS[i];
+    }
+    return null;
+  }
+  // Refresh, unlike the old single-screen app, should re-read the
+  // project's data without yanking you back up to the Levels screen if
+  // you're down in Rooms or Items -- it re-renders whichever of the three
+  // project-scoped screens is currently showing.
+  function refreshProjectData(){
+    if (!state.project) return Promise.resolve();
+    return readProjectDetail(state.root, state.project.folderName).then(function(p){
+      state.project = p;
+      if (state.selectedInboxId && !p.inbox.some(function(r){ return r.id === state.selectedInboxId; })){
+        selectInboxOrder(null);
+      }
+      renderInbox();
+      var s = currentScreenName();
+      if (s === "project") renderLevels();
+      else if (s === "rooms") renderRooms();
+      else if (s === "items") renderItems();
+    });
   }
   headerRefreshBtn.addEventListener("click", function(){
-    if (state.project) openProject(state.project.folderName);
+    if (state.project) refreshProjectData().catch(function(err){
+      console.error("Refreshing project failed:", err);
+      showToast("Couldn't refresh — try again.");
+    });
     else if (state.root) loadHome();
   });
 
@@ -1091,28 +1248,45 @@
   var itemFilterInput = document.getElementById("itemFilterInput");
   var itemsContainer = document.getElementById("itemsContainer");
   var itemsEmpty = document.getElementById("itemsEmpty");
+  var levelsList = document.getElementById("levelsList");
+  var levelsEmpty = document.getElementById("levelsEmpty");
+  var backToLevelsBtn = document.getElementById("backToLevelsBtn");
+  var roomsLevelLabel = document.getElementById("roomsLevelLabel");
+  var roomsList = document.getElementById("roomsList");
+  var roomsEmpty = document.getElementById("roomsEmpty");
+  var backToRoomsBtn = document.getElementById("backToRoomsBtn");
+  var itemsRoomLabel = document.getElementById("itemsRoomLabel");
 
   function openProject(folderName){
     showScreen("project");
     projectTitle.textContent = "Loading…";
     projectSub.textContent = "";
     inboxList.innerHTML = "";
+    levelsList.innerHTML = "";
     itemsContainer.innerHTML = "";
     selectBar.hidden = true;
     return readProjectDetail(state.root, folderName).then(function(p){
       state.project = p;
       state.selectedInboxId = null;
+      state.activeLevel = null;
+      state.activeRoom = null;
       projectTitle.textContent = (p.no ? p.no + " — " : "") + p.name;
       projectSub.textContent = [p.contractor, p.projectManager].filter(Boolean).join(" · ");
       renderInbox();
-      renderItems();
+      renderLevels();
     }).catch(function(err){
       console.error("Opening project failed:", err);
       projectTitle.textContent = folderName;
       showToast("Couldn't read that project — try Refresh.");
     });
   }
-  backToHomeBtn.addEventListener("click", function(){ state.project = null; showScreen("home"); loadHome(); });
+  backToHomeBtn.addEventListener("click", function(){
+    state.project = null; state.activeLevel = null; state.activeRoom = null;
+    state.selectedInboxId = null; selectBar.hidden = true;
+    showScreen("home"); loadHome();
+  });
+  backToLevelsBtn.addEventListener("click", function(){ renderLevels(); showScreen("project"); });
+  backToRoomsBtn.addEventListener("click", function(){ renderRooms(); showScreen("rooms"); });
   itemFilterInput.addEventListener("input", renderItems);
 
   /* ---- inbox ---- */
@@ -1221,7 +1395,13 @@
     inboxFileInput.value = "";
   });
 
-  /* ---- joinery items ---- */
+  /* ---- joinery items: Levels -> Rooms -> Items (v3, 2026-09-27) ----
+     Andrew, verbatim: "and the orders app needs the same folder hierachy
+     (projects / levels / rooms / joinery items)" -- matches the same
+     drill-down navigation every sibling app already uses (Site Measure/
+     Viewer/ITP/UTZLINE Projects: Projects -> Levels -> Rooms -> Items).
+     groupItems still does the same level/room grouping it always did; it
+     now feeds three separate screens instead of one long grouped list. */
   function groupItems(items){
     var groups = [], byLevel = {};
     items.forEach(function(it){
@@ -1231,7 +1411,74 @@
       if (!byLevel[lvl].rooms[rm]) byLevel[lvl].rooms[rm] = [];
       byLevel[lvl].rooms[rm].push(it);
     });
+    groups.sort(function(a, b){ return a.level.localeCompare(b.level, undefined, { sensitivity: "base", numeric: true }); });
     return groups;
+  }
+  function orderCountFor(it){ return (state.project.attachedMap[itemKey(it.level, it.room, it.joineryId)] || []).length; }
+  function countBadgeHtml(n, noun){
+    return n > 0
+      ? '<span class="order-badge has-orders">' + n + " " + noun + (n === 1 ? "" : "s") + "</span>"
+      : '<span class="order-badge">No ' + noun + "s</span>";
+  }
+  function renderLevels(){
+    levelsList.innerHTML = "";
+    var groups = groupItems(state.project.items);
+    levelsEmpty.hidden = groups.length > 0;
+    groups.forEach(function(g){
+      var roomNames = Object.keys(g.rooms);
+      var itemCount = 0, orderCount = 0;
+      roomNames.forEach(function(rm){
+        g.rooms[rm].forEach(function(it){ itemCount++; orderCount += orderCountFor(it); });
+      });
+      var row = document.createElement("button");
+      row.className = "list-item";
+      row.type = "button";
+      row.innerHTML =
+        '<div class="li-main">' +
+          '<div class="li-title">' + escapeHtml(g.level) + "</div>" +
+          '<div class="li-sub">' + roomNames.length + " room" + (roomNames.length === 1 ? "" : "s") + " · " + itemCount + " item" + (itemCount === 1 ? "" : "s") + "</div>" +
+        "</div>" +
+        '<div class="row" style="gap:8px;">' + countBadgeHtml(orderCount, "order") + '<span class="chev">&rsaquo;</span></div>';
+      row.addEventListener("click", function(){ openLevel(g.level); });
+      levelsList.appendChild(row);
+    });
+  }
+  function openLevel(levelName){
+    state.activeLevel = levelName;
+    state.activeRoom = null;
+    roomsLevelLabel.textContent = levelName;
+    renderRooms();
+    showScreen("rooms");
+  }
+  function renderRooms(){
+    roomsList.innerHTML = "";
+    var groups = groupItems(state.project.items);
+    var g = groups.filter(function(x){ return x.level === state.activeLevel; })[0];
+    var roomNames = g ? Object.keys(g.rooms).sort(function(a, b){ return a.localeCompare(b, undefined, { sensitivity: "base" }); }) : [];
+    roomsEmpty.hidden = roomNames.length > 0;
+    roomNames.forEach(function(roomName){
+      var items = g.rooms[roomName];
+      var orderCount = 0;
+      items.forEach(function(it){ orderCount += orderCountFor(it); });
+      var row = document.createElement("button");
+      row.className = "list-item";
+      row.type = "button";
+      row.innerHTML =
+        '<div class="li-main">' +
+          '<div class="li-title">' + escapeHtml(roomName) + "</div>" +
+          '<div class="li-sub">' + items.length + " item" + (items.length === 1 ? "" : "s") + "</div>" +
+        "</div>" +
+        '<div class="row" style="gap:8px;">' + countBadgeHtml(orderCount, "order") + '<span class="chev">&rsaquo;</span></div>';
+      row.addEventListener("click", function(){ openRoom(roomName); });
+      roomsList.appendChild(row);
+    });
+  }
+  function openRoom(roomName){
+    state.activeRoom = roomName;
+    itemsRoomLabel.textContent = state.activeLevel + " — " + roomName;
+    itemFilterInput.value = "";
+    renderItems();
+    showScreen("items");
   }
   function renderItemRow(it){
     var key = itemKey(it.level, it.room, it.joineryId);
@@ -1283,27 +1530,19 @@
     });
     return row;
   }
+  // Scoped to the one room currently open (state.activeLevel/activeRoom)
+  // -- no more level/room group headings needed, since this screen only
+  // ever shows one room's items at a time now.
   function renderItems(){
     var filterText = (itemFilterInput.value || "").trim().toLowerCase();
     itemsContainer.innerHTML = "";
-    var groups = groupItems(state.project.items);
-    var shown = 0;
-    groups.forEach(function(g){
-      var roomNames = Object.keys(g.rooms).sort(function(a, b){ return a.localeCompare(b, undefined, { sensitivity: "base" }); });
-      roomNames.forEach(function(roomName){
-        var items = g.rooms[roomName].filter(function(it){
-          if (!filterText) return true;
-          return (it.joineryId + " " + it.description).toLowerCase().indexOf(filterText) !== -1;
-        });
-        if (!items.length) return;
-        var heading = document.createElement("div");
-        heading.className = "group-heading";
-        heading.textContent = g.level + " — " + roomName;
-        itemsContainer.appendChild(heading);
-        items.forEach(function(it){ itemsContainer.appendChild(renderItemRow(it)); shown++; });
-      });
+    var items = state.project.items.filter(function(it){
+      if (it.level !== state.activeLevel || it.room !== state.activeRoom) return false;
+      if (!filterText) return true;
+      return (it.joineryId + " " + (it.description || "")).toLowerCase().indexOf(filterText) !== -1;
     });
-    itemsEmpty.hidden = shown > 0;
+    items.forEach(function(it){ itemsContainer.appendChild(renderItemRow(it)); });
+    itemsEmpty.hidden = items.length > 0;
   }
 
   /* ---- attach order modal ---- */
@@ -1389,6 +1628,7 @@
       var meta = [];
       if (o.supplier) meta.push(escapeHtml(o.supplier));
       if (o.poNumber) meta.push("PO " + escapeHtml(o.poNumber));
+      var isReceived = !!o.received;
       row.innerHTML =
         '<div class="order-row-top">' +
           '<span class="type-chip type-' + escapeHtml(o.type) + '">' + escapeHtml(typeLabel(o.type)) + "</span>" +
@@ -1396,11 +1636,45 @@
         "</div>" +
         (meta.length ? '<div class="order-row-meta">' + meta.join(" · ") + "</div>" : "") +
         (o.notes ? '<div class="order-row-notes">' + escapeHtml(o.notes) + "</div>" : "") +
+        '<label class="order-received-row">' +
+          '<input type="checkbox" data-role="received-check"' + (isReceived ? " checked" : "") + '> Received' +
+          '<input type="date" class="order-received-date" data-role="received-date" value="' + escapeHtml(o.receivedDate || "") + '"' + (isReceived ? "" : " hidden") + ">" +
+        "</label>" +
         '<div class="order-row-actions">' +
           '<button class="btn link sm" type="button" data-role="open">Open file (' + escapeHtml(o.fileName) + ")</button>" +
           '<button class="btn secondary sm" type="button" data-role="unattach">Unattach</button>' +
         "</div>";
       row.querySelector('[data-role="open"]').addEventListener("click", function(){ openOrderFile(o); });
+      var receivedCheck = row.querySelector('[data-role="received-check"]');
+      var receivedDateInput = row.querySelector('[data-role="received-date"]');
+      receivedCheck.addEventListener("change", function(){
+        var checked = receivedCheck.checked;
+        receivedDateInput.hidden = !checked;
+        if (checked && !receivedDateInput.value) receivedDateInput.value = todayISO();
+        setOrderReceived(state.project.projectHandle, o, checked, receivedDateInput.value).then(function(updated){
+          o.received = updated.received;
+          o.receivedDate = updated.receivedDate;
+          receivedDateInput.value = updated.receivedDate || "";
+          showToast(checked ? "Marked as received." : "Marked as not received.");
+        }).catch(function(err){
+          console.error("Updating received status failed:", err);
+          showToast("Couldn't update received status — try again.");
+          receivedCheck.checked = !checked;
+          receivedDateInput.hidden = checked;
+        });
+      });
+      receivedDateInput.addEventListener("change", function(){
+        if (!receivedCheck.checked) return;
+        var dateVal = receivedDateInput.value || todayISO();
+        setOrderReceived(state.project.projectHandle, o, true, dateVal).then(function(updated){
+          o.received = updated.received;
+          o.receivedDate = updated.receivedDate;
+          receivedDateInput.value = updated.receivedDate || "";
+        }).catch(function(err){
+          console.error("Updating received date failed:", err);
+          showToast("Couldn't update the received date — try again.");
+        });
+      });
       row.querySelector('[data-role="unattach"]').addEventListener("click", function(){
         showConfirm("Unattach this order from " + item.joineryId + "? It goes back to the inbox — the file is kept.").then(function(ok){
           if (!ok) return;
@@ -1547,6 +1821,19 @@
       return loadHome();
     },
     openProjectForTest: function(folderName){ return openProject(folderName); },
+    // v3 Levels -> Rooms -> Items navigation.
+    currentScreenForTest: function(){ return currentScreenName(); },
+    levelRowsTextForTest: function(){
+      return Array.prototype.map.call(levelsList.querySelectorAll(".list-item"), function(el){ return el.textContent; });
+    },
+    roomRowsTextForTest: function(){
+      return Array.prototype.map.call(roomsList.querySelectorAll(".list-item"), function(el){ return el.textContent; });
+    },
+    openLevelForTest: function(levelName){ openLevel(levelName); },
+    openRoomForTest: function(roomName){ openRoom(roomName); },
+    backToLevelsForTest: function(){ backToLevelsBtn.click(); },
+    backToRoomsForTest: function(){ backToRoomsBtn.click(); },
+    refreshProjectForTest: function(){ return refreshProjectData(); },
     dropFilesOnInboxForTest: function(fileSpecs){
       var files = fileSpecs.map(function(f){ return new File([f.text || ""], f.name, { type: f.type || "text/plain" }); });
       var dt = new DataTransfer();
@@ -1628,6 +1915,34 @@
     confirmYesForTest: function(){ confirmOkBtn.click(); return pause(60); },
     confirmNoForTest: function(){ confirmCancelBtn.click(); },
     confirmBackdropHidden: function(){ return confirmBackdrop.hidden; },
+    // "mark it as recieved" (v3) -- fileNameSubstr matches the same
+    // "Open file (<name>)" button text every order row already renders,
+    // so tests don't need a separate order-id lookup.
+    orderReceivedStateForTest: function(fileNameSubstr){
+      var rows = Array.prototype.slice.call(viewOrdersList.querySelectorAll(".order-row"));
+      var row = rows.filter(function(r){
+        var b = r.querySelector('[data-role="open"]');
+        return b && b.textContent.indexOf(fileNameSubstr) !== -1;
+      })[0];
+      if (!row) return null;
+      var check = row.querySelector('[data-role="received-check"]');
+      var date = row.querySelector('[data-role="received-date"]');
+      return { checked: check.checked, dateHidden: date.hidden, dateValue: date.value };
+    },
+    setOrderReceivedForTest: function(fileNameSubstr, checked, dateValue){
+      var rows = Array.prototype.slice.call(viewOrdersList.querySelectorAll(".order-row"));
+      var row = rows.filter(function(r){
+        var b = r.querySelector('[data-role="open"]');
+        return b && b.textContent.indexOf(fileNameSubstr) !== -1;
+      })[0];
+      if (!row) return Promise.resolve(false);
+      var check = row.querySelector('[data-role="received-check"]');
+      var date = row.querySelector('[data-role="received-date"]');
+      check.checked = checked;
+      if (checked && dateValue) date.value = dateValue;
+      check.dispatchEvent(new Event("change"));
+      return pause(80).then(function(){ return true; });
+    },
     dumpFakeTreeForTest: function(){ return JSON.parse(JSON.stringify(state.root && state.root._node)); }
   };
 })();

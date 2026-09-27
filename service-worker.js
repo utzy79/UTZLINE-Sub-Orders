@@ -59,8 +59,16 @@
 // Attach order dialog opens immediately, no inbox step in between
 // (though the file still lands in the inbox for real under the hood, so
 // cancelling the dialog loses nothing).
+//
+// v3 (2026-09-27, same day): "and the orders app needs the same folder
+// hierachy (projects / levels / rooms / joinery items)" -- the single
+// flat, filterable joinery-item list is now a proper Levels -> Rooms ->
+// Items drill-down, same navigation shape every sibling app already
+// uses. Also: "we also need to be able to mark it as recieved on the
+// orders app" -- attached orders now have a "Received" checkbox + date
+// in the View orders modal (non-destructive, toggles either way).
 var ICON_VERSION = "v1";
-var CACHE_NAME = "utzline-sub-orders-cache-v2";
+var CACHE_NAME = "utzline-sub-orders-cache-v3";
 
 var PRECACHE_URLS = [
   "./",
