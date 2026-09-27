@@ -165,6 +165,57 @@
   fields. New setOrderReceived() write, same read-modify-write shape as
   every other write here (read the Orders/ file fresh, patch the one
   entry, write the whole array back).
+
+  ****************************************************************
+  * v4 (2026-09-27, same day) -- CUSTOM ORDER TYPES, SAVED         *
+  * SUPPLIER NAMES.                                                *
+  * Andrew: "orders app, need to be able to add more sub            *
+  * catergories manually, but ensure no duplicates" / "and          *
+  * supplier names get saved, also no duplicates".                  *
+  ****************************************************************
+
+  CUSTOM ORDER TYPES: the Type select in the Attach modal now has a
+  trailing "+ Add new type…" option. Picking it opens a small Add order
+  type prompt instead of ever being a real, submittable select value.
+  Custom types are stored ROOT-LEVEL (Projects/Sub Orders Types.json, a
+  JSON array of {key, label, addedAt}) -- shared across every project,
+  same "one root-level shared config file" precedent as company-logo.png
+  -- rather than per-project, since a subcontractor category is a fact
+  about the business, not one job. DEDUPE ("ensure no duplicates"):
+  every label is slugified (lowercase, trim, non-alphanumeric collapsed
+  to hyphens) into its storage key, so "Glass"/"glass"/" Glass " all
+  produce "glass" and a second entry can never be created -- attempting
+  to add an existing one (base or custom) just selects the existing
+  match instead of erroring. COLOUR: a custom type deliberately gets NO
+  new hue of its own -- the four base types already sit right at the
+  dataviz validator's own documented ~3-4-simultaneous-colour ceiling
+  (see the v1 comment above), so a 5th+ hue would not stay reliably
+  distinguishable. Every custom type instead renders with the single
+  neutral .type-custom chip style, identified by its text label alone
+  (never colour alone anywhere in this app, custom types included).
+  Each attached order also snapshots a typeLabel string at attach time,
+  so a downstream reader (UTZLINE Projects' Joinery Item card) can show
+  the right label without needing its own copy of the custom-types
+  registry.
+
+  SAVED SUPPLIER NAMES: the free-text Supplier field in the Attach modal
+  now has autocomplete via a <datalist>, backed by another root-level
+  shared file (Projects/Sub Orders Suppliers.json, a plain JSON array of
+  strings). A successful Attach saves that order's supplier name
+  (trimmed) into the list if it isn't already there -- case/whitespace-
+  insensitive comparison, same dedupe principle as order types, just
+  without needing a visible key/slug since these are plain display
+  strings. This is deliberately NOT a closed dropdown: unlike order
+  types (which gate a <select> that must always resolve to one exact
+  stored value), supplier names are inherently open-ended, so typing a
+  brand-new one is never blocked -- the datalist only ever *suggests*
+  previously-used names, saving is a side effect of a successful attach,
+  not a separate step the user has to perform.
+
+  Both new root-level files are loaded (and any newly-added custom type
+  applied to the Type select) every time the root folder becomes usable
+  -- first pick, reconnect, and the test hook -- via loadSharedTaxonomies(),
+  called from inside loadHome().
 -->
 <html lang="en">
 <head>
@@ -346,6 +397,13 @@
   .type-chip.type-upholstery{ background: var(--type-upholstery); color: #fff; }
   .type-chip.type-timber{ background: var(--type-timber); color: #fff; }
   .type-chip.type-aluminium{ background: var(--type-aluminium); color: #241205; }
+  /* Custom order types (v4, 2026-09-27) deliberately get NO new hue --
+     the dataviz skill's validator already flagged the original four as
+     sitting right at the ~3-4-simultaneous-colour ceiling for this kind
+     of palette, so a 5th+ hue would not stay reliably distinguishable.
+     Every custom type instead gets this one neutral, label-forward
+     treatment; the text label (never colour alone) is what identifies it. */
+  .type-chip.type-custom{ background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
 
   /* attached-order rows (View orders modal) */
   .order-row{
@@ -524,7 +582,7 @@
 
 </main>
 
-<footer class="app-foot">UTZLINE Sub Orders — v3, read/write against your Projects folder</footer>
+<footer class="app-foot">UTZLINE Sub Orders — v4, read/write against your Projects folder</footer>
 
 <!-- ---- Attach order modal ---- -->
 <div class="modal-backdrop" id="attachBackdrop" hidden>
@@ -547,7 +605,8 @@
     </div>
     <div class="field">
       <label for="attachSupplier">Supplier / subcontractor</label>
-      <input type="text" id="attachSupplier" placeholder="e.g. Acme Steel">
+      <input type="text" id="attachSupplier" placeholder="e.g. Acme Steel" list="supplierList" autocomplete="off">
+      <datalist id="supplierList"></datalist>
     </div>
     <div class="field">
       <label for="attachPo">PO / order number</label>
@@ -560,6 +619,24 @@
     <div class="modal-actions">
       <button class="btn secondary" id="attachCancelBtn" type="button">Cancel</button>
       <button class="btn" id="attachSubmitBtn" type="button" disabled>Attach</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---- Add a new order type (v4, 2026-09-27) -- Andrew, verbatim: "need
+     to be able to add more sub catergories manually, but ensure no
+     duplicates." Opened from the Type select's own "+ Add new type…"
+     option; see addCustomOrderType's own comment for the dedupe rule. ---- -->
+<div class="modal-backdrop" id="addTypeBackdrop" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="addTypeTitle" style="max-width:360px;">
+    <h2 id="addTypeTitle">Add a new order type</h2>
+    <div class="field">
+      <label for="addTypeInput">Type name</label>
+      <input type="text" id="addTypeInput" placeholder="e.g. Glass">
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="addTypeCancelBtn" type="button">Cancel</button>
+      <button class="btn" id="addTypeSubmitBtn" type="button">Add</button>
     </div>
   </div>
 </div>
@@ -617,16 +694,35 @@
   function orderFileNameFor(level, room, joineryId){
     return sanitizeFileBase(level) + " - " + sanitizeFileBase(room) + " - " + sanitizeFileBase(joineryId) + ".json";
   }
-  var ORDER_TYPES = [
+  // The original four fixed types (the ones the dataviz skill's own
+  // validator confirmed are simultaneously colour-distinguishable, up to
+  // its own documented 3-4-slot ceiling). Custom types added via "+ Add
+  // new type…" (v4, 2026-09-27) are appended to ORDER_TYPES below but
+  // deliberately never get their own hue -- see the .type-custom CSS
+  // rule's own comment for why.
+  var BASE_ORDER_TYPES = [
     { key: "steel", label: "Steel" },
     { key: "upholstery", label: "Upholstery" },
     { key: "timber", label: "Timber" },
     { key: "aluminium", label: "Aluminium" }
   ];
+  var ORDER_TYPES = BASE_ORDER_TYPES.slice();
+  function isBaseType(key){ return BASE_ORDER_TYPES.some(function(t){ return t.key === key; }); }
   function typeLabel(key){
     for (var i = 0; i < ORDER_TYPES.length; i++){ if (ORDER_TYPES[i].key === key) return ORDER_TYPES[i].label; }
     return key || "";
   }
+  // Slug used as the type's stable, storage-level identity AND as the
+  // dedupe key -- "Glass", "glass" and " glass " all slugify to "glass",
+  // so a case/whitespace variant of an existing type can never be added
+  // as a second, separate one (Andrew, verbatim: "ensure no duplicates").
+  function slugifyTypeKey(label){
+    return String(label || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+  }
+  // Base types keep their own validated hue class (type-steel etc.); any
+  // custom type folds into the single neutral type-custom treatment --
+  // see that class's own CSS comment for why.
+  function typeChipClass(key){ return "type-chip " + (isBaseType(key) ? "type-" + key : "type-custom"); }
   function formatDate(iso, dateOnly){
     if (!iso) return "";
     try{
@@ -920,6 +1016,109 @@
       return w.write(JSON.stringify(data, null, 2)).then(function(){ return w.close(); });
     });
   }
+  /* ============================================================
+   * ROOT-LEVEL SHARED CONFIG (v4, 2026-09-27) -- custom order types and
+   * remembered supplier names. Andrew, verbatim: "need to be able to add
+   * more sub catergories manually, but ensure no duplicates" / "and
+   * supplier names get saved, also no duplicates." Both are a taxonomy
+   * of the whole subcontractor-order business, not any one project, so
+   * they're stored as two small files at the Projects-root itself --
+   * same level as company-logo.png (the other root-level, cross-project
+   * file this family already has) -- not inside any project's own
+   * Project Saves folder. Every project sees the same shared lists.
+   * ============================================================ */
+  var CUSTOM_TYPES_FILE = "Sub Orders Types.json";
+  var SUPPLIERS_FILE = "Sub Orders Suppliers.json";
+  function readRootJsonArray(rootHandle, fileName){
+    return rootHandle.getFileHandle(fileName, { create: false }).then(function(fh){
+      return fh.getFile().then(function(file){ return file.text(); }).then(function(text){
+        var arr;
+        try{ arr = JSON.parse(text); }catch(e){ arr = []; }
+        return Array.isArray(arr) ? arr : [];
+      });
+    }, function(err){
+      if (isNotFoundErr(err)) return [];
+      return Promise.reject(readFailedErr(fileName, err));
+    });
+  }
+  function writeRootJsonArray(rootHandle, fileName, arr){
+    return writeJsonFile(rootHandle, fileName, arr);
+  }
+  function readCustomOrderTypes(rootHandle){ return readRootJsonArray(rootHandle, CUSTOM_TYPES_FILE); }
+  function writeCustomOrderTypes(rootHandle, arr){ return writeRootJsonArray(rootHandle, CUSTOM_TYPES_FILE, arr); }
+  function readSavedSuppliers(rootHandle){ return readRootJsonArray(rootHandle, SUPPLIERS_FILE); }
+  function writeSavedSuppliers(rootHandle, arr){ return writeRootJsonArray(rootHandle, SUPPLIERS_FILE, arr); }
+
+  // Loads both shared lists and applies them to ORDER_TYPES / the
+  // supplier <datalist> -- called once whenever the root folder is
+  // (re)connected (fresh pick, reconnect, or a test setting a fake
+  // root), since neither list is scoped to any one project.
+  function loadSharedTaxonomies(){
+    return Promise.all([
+      readCustomOrderTypes(state.root).catch(function(err){ console.error("Reading custom order types failed:", err); return []; }),
+      readSavedSuppliers(state.root).catch(function(err){ console.error("Reading saved suppliers failed:", err); return []; })
+    ]).then(function(r){
+      applyCustomOrderTypes(r[0]);
+      applySavedSuppliers(r[1]);
+    });
+  }
+  function applyCustomOrderTypes(customArr){
+    ORDER_TYPES = BASE_ORDER_TYPES.concat((customArr || []).map(function(c){ return { key: c.key, label: c.label, custom: true }; }));
+    populateTypeSelectOptions();
+  }
+  function applySavedSuppliers(namesArr){
+    state.savedSuppliers = (namesArr || []).slice();
+    supplierList.innerHTML = "";
+    state.savedSuppliers.forEach(function(name){
+      var opt = document.createElement("option");
+      opt.value = name;
+      supplierList.appendChild(opt);
+    });
+  }
+  // Adds a brand-new type, rejecting (resolving {duplicate:true, ...}
+  // instead of writing) anything whose slug already matches an existing
+  // type, fixed or custom -- re-reads the file fresh first so two
+  // clients adding the same new type around the same time still can't
+  // produce two entries, same read-modify-write shape as every other
+  // write in this app.
+  function addCustomOrderType(rootHandle, label){
+    var key = slugifyTypeKey(label);
+    if (!key) return Promise.resolve({ ok: false, reason: "empty" });
+    if (isBaseType(key)){
+      var baseMatch = BASE_ORDER_TYPES.filter(function(t){ return t.key === key; })[0];
+      return Promise.resolve({ ok: false, reason: "duplicate", existing: baseMatch });
+    }
+    return readCustomOrderTypes(rootHandle).then(function(existing){
+      var dupe = existing.filter(function(c){ return c.key === key; })[0];
+      if (dupe){
+        applyCustomOrderTypes(existing);
+        return { ok: false, reason: "duplicate", existing: { key: dupe.key, label: dupe.label } };
+      }
+      var rec = { key: key, label: String(label).trim(), addedAt: new Date().toISOString() };
+      var next = existing.concat([rec]);
+      return writeCustomOrderTypes(rootHandle, next).then(function(){
+        applyCustomOrderTypes(next);
+        return { ok: true, type: rec };
+      });
+    });
+  }
+  // Best-effort: called after a successful Attach whenever a supplier
+  // name was typed. Never blocks or fails the attach itself -- the order
+  // is already saved by the time this runs, so a failure here just means
+  // the name isn't remembered for next time's autocomplete, nothing more.
+  function maybeSaveSupplierName(rootHandle, rawName){
+    var name = String(rawName || "").trim();
+    if (!name) return Promise.resolve();
+    var normalized = name.toLowerCase();
+    return readSavedSuppliers(rootHandle).then(function(existing){
+      var already = existing.some(function(n){ return String(n || "").trim().toLowerCase() === normalized; });
+      if (already) return;
+      var next = existing.concat([name]);
+      return writeSavedSuppliers(rootHandle, next).then(function(){ applySavedSuppliers(next); });
+    }).catch(function(err){
+      console.error("Saving supplier name failed (non-fatal):", err);
+    });
+  }
   function writeInboxRecord(projectHandle, rec){
     return ensureInboxDir(projectHandle).then(function(dirH){ return writeJsonFile(dirH, rec.id + ".json", rec); });
   }
@@ -974,6 +1173,7 @@
     var order = {
       id: pendingRec.id,
       type: fields.type,
+      typeLabel: fields.typeLabel || "",
       requiredByDate: fields.requiredByDate,
       supplier: fields.supplier || "",
       poNumber: fields.poNumber || "",
@@ -1087,7 +1287,7 @@
     return "Couldn't open the folder picker -- try again.";
   }
 
-  var state = { root: null, rootName: "", project: null, selectedInboxId: null, viewingItem: null, activeLevel: null, activeRoom: null };
+  var state = { root: null, rootName: "", project: null, selectedInboxId: null, viewingItem: null, activeLevel: null, activeRoom: null, savedSuppliers: [] };
 
   var setupError = document.getElementById("setupError");
   var reconnectName = document.getElementById("reconnectName");
@@ -1225,9 +1425,17 @@
   }
   function loadHome(){
     homeRefreshNote.hidden = false;
-    return readAllProjectSummaries(state.root).then(function(summaries){
-      renderHome(summaries);
-    }).catch(function(err){
+    // loadHome() runs at every point the root folder becomes usable
+    // (first pick, reconnect, and the test hook), so this is also where
+    // the shared root-level custom-types/suppliers files get (re)loaded --
+    // see loadSharedTaxonomies's own comment. Awaited alongside the
+    // project summaries so a test awaiting loadHome()/setFakeRootForTest
+    // can rely on ORDER_TYPES/state.savedSuppliers already being current.
+    var taxonomiesLoaded = loadSharedTaxonomies();
+    return Promise.all([
+      readAllProjectSummaries(state.root).then(function(summaries){ renderHome(summaries); }),
+      taxonomiesLoaded
+    ]).catch(function(err){
       console.error("Loading projects failed:", err);
       showToast("Couldn't read your Projects folder — try Refresh.");
     }).then(function(){ homeRefreshNote.hidden = true; });
@@ -1552,17 +1760,43 @@
   var attachTypeSel = document.getElementById("attachType");
   var attachDateInput = document.getElementById("attachDate");
   var attachSupplierInput = document.getElementById("attachSupplier");
+  var supplierList = document.getElementById("supplierList");
   var attachPoInput = document.getElementById("attachPo");
   var attachNotesInput = document.getElementById("attachNotes");
   var attachCancelBtn = document.getElementById("attachCancelBtn");
   var attachSubmitBtn = document.getElementById("attachSubmitBtn");
   var pendingAttach = null;
+  var ADD_NEW_TYPE_VALUE = "__add_new_type__";
+  var attachTypeLastRealValue = ""; // what to snap back to if "+ Add new type…" gets picked, or cancelled
+
+  // Rebuilds the Type select's <option>s from the current ORDER_TYPES
+  // (base four + whatever custom ones have been loaded/added), plus a
+  // trailing "+ Add new type…" sentinel option. Called once at boot/root
+  // load and again every time a type is added, so every open Attach
+  // modal picks up new types without needing to be reopened.
+  function populateTypeSelectOptions(){
+    var currentValue = attachTypeSel.value === ADD_NEW_TYPE_VALUE ? attachTypeLastRealValue : attachTypeSel.value;
+    attachTypeSel.innerHTML = "";
+    var blank = document.createElement("option");
+    blank.value = ""; blank.textContent = "Choose one…";
+    attachTypeSel.appendChild(blank);
+    ORDER_TYPES.forEach(function(t){
+      var opt = document.createElement("option");
+      opt.value = t.key; opt.textContent = t.label;
+      attachTypeSel.appendChild(opt);
+    });
+    var addOpt = document.createElement("option");
+    addOpt.value = ADD_NEW_TYPE_VALUE; addOpt.textContent = "+ Add new type…";
+    attachTypeSel.appendChild(addOpt);
+    if (currentValue && ORDER_TYPES.some(function(t){ return t.key === currentValue; })) attachTypeSel.value = currentValue;
+  }
 
   function openAttachModal(item, rec){
     pendingAttach = { item: item, rec: rec };
     attachFileName.textContent = rec.fileName;
     attachContext.textContent = item.joineryId + (item.description ? " — " + item.description : "");
     attachTypeSel.value = "";
+    attachTypeLastRealValue = "";
     attachDateInput.value = "";
     attachSupplierInput.value = "";
     attachPoInput.value = "";
@@ -1571,8 +1805,21 @@
     attachBackdrop.hidden = false;
   }
   function closeAttachModal(){ attachBackdrop.hidden = true; pendingAttach = null; }
-  function updateAttachSubmitEnabled(){ attachSubmitBtn.disabled = !(attachTypeSel.value && attachDateInput.value); }
-  attachTypeSel.addEventListener("change", updateAttachSubmitEnabled);
+  function updateAttachSubmitEnabled(){ attachSubmitBtn.disabled = !(attachTypeSel.value && attachTypeSel.value !== ADD_NEW_TYPE_VALUE && attachDateInput.value); }
+  // "need to be able to add more sub catergories manually" (Andrew,
+  // 2026-09-27, v4) -- picking the sentinel option opens the small Add
+  // Type prompt instead of ever being a real, submittable value; the
+  // select snaps back to whatever it held before while that prompt is
+  // open, so Cancel leaves the form exactly as it was.
+  attachTypeSel.addEventListener("change", function(){
+    if (attachTypeSel.value === ADD_NEW_TYPE_VALUE){
+      attachTypeSel.value = attachTypeLastRealValue;
+      openAddTypeModal();
+      return;
+    }
+    attachTypeLastRealValue = attachTypeSel.value;
+    updateAttachSubmitEnabled();
+  });
   attachDateInput.addEventListener("input", updateAttachSubmitEnabled);
   attachCancelBtn.addEventListener("click", closeAttachModal);
   attachSubmitBtn.addEventListener("click", function(){
@@ -1580,6 +1827,7 @@
     var item = pendingAttach.item, rec = pendingAttach.rec;
     var fields = {
       type: attachTypeSel.value,
+      typeLabel: typeLabel(attachTypeSel.value),
       requiredByDate: attachDateInput.value,
       supplier: attachSupplierInput.value.trim(),
       poNumber: attachPoInput.value.trim(),
@@ -1596,11 +1844,55 @@
       renderItems();
       closeAttachModal();
       showToast("Order attached to " + item.joineryId + ".");
+      // "and supplier names get saved, also no duplicates" (Andrew,
+      // 2026-09-27, v4) -- best-effort, never blocks the attach itself.
+      if (fields.supplier) maybeSaveSupplierName(state.root, fields.supplier);
     }).catch(function(err){
       console.error("Attaching order failed:", err);
       attachSubmitBtn.disabled = false;
       showToast("Couldn't attach that order — try again.");
     });
+  });
+
+  /* ---- add order type modal (v4, 2026-09-27) ---- */
+  var addTypeBackdrop = document.getElementById("addTypeBackdrop");
+  var addTypeInput = document.getElementById("addTypeInput");
+  var addTypeCancelBtn = document.getElementById("addTypeCancelBtn");
+  var addTypeSubmitBtn = document.getElementById("addTypeSubmitBtn");
+  function openAddTypeModal(){
+    addTypeInput.value = "";
+    addTypeBackdrop.hidden = false;
+    setTimeout(function(){ addTypeInput.focus(); }, 0);
+  }
+  function closeAddTypeModal(){ addTypeBackdrop.hidden = true; }
+  function selectTypeInAttachModal(key){
+    attachTypeLastRealValue = key;
+    attachTypeSel.value = key;
+    updateAttachSubmitEnabled();
+  }
+  addTypeCancelBtn.addEventListener("click", closeAddTypeModal);
+  addTypeSubmitBtn.addEventListener("click", function(){
+    var label = (addTypeInput.value || "").trim();
+    if (!label){ showToast("Type a name for the new order type."); return; }
+    addTypeSubmitBtn.disabled = true;
+    addCustomOrderType(state.root, label).then(function(result){
+      if (!result.ok){
+        if (result.reason === "duplicate"){
+          showToast('"' + result.existing.label + '" already exists — selected it instead.');
+          selectTypeInAttachModal(result.existing.key);
+        } else {
+          showToast("Type a name using letters or numbers.");
+          return;
+        }
+      } else {
+        showToast('"' + result.type.label + '" added.');
+        selectTypeInAttachModal(result.type.key);
+      }
+      closeAddTypeModal();
+    }).catch(function(err){
+      console.error("Adding a new order type failed:", err);
+      showToast("Couldn't add that type — try again.");
+    }).then(function(){ addTypeSubmitBtn.disabled = false; });
   });
 
   /* ---- view orders modal ---- */
@@ -1631,7 +1923,7 @@
       var isReceived = !!o.received;
       row.innerHTML =
         '<div class="order-row-top">' +
-          '<span class="type-chip type-' + escapeHtml(o.type) + '">' + escapeHtml(typeLabel(o.type)) + "</span>" +
+          '<span class="' + typeChipClass(o.type) + '">' + escapeHtml(o.typeLabel || typeLabel(o.type)) + "</span>" +
           '<span class="order-row-date">Required by ' + formatDate(o.requiredByDate, true) + "</span>" +
         "</div>" +
         (meta.length ? '<div class="order-row-meta">' + meta.join(" · ") + "</div>" : "") +
@@ -1887,6 +2179,30 @@
     cancelAttachForTest: function(){ attachCancelBtn.click(); },
     attachModalHidden: function(){ return attachBackdrop.hidden; },
     attachSubmitDisabled: function(){ return attachSubmitBtn.disabled; },
+    // v4 (2026-09-27) -- custom order types + saved supplier names.
+    typeSelectOptionsForTest: function(){
+      return Array.prototype.map.call(attachTypeSel.querySelectorAll("option"), function(o){ return { value: o.value, text: o.textContent }; });
+    },
+    selectAttachTypeForTest: function(value){
+      attachTypeSel.value = value;
+      attachTypeSel.dispatchEvent(new Event("change"));
+    },
+    addTypeModalHidden: function(){ return addTypeBackdrop.hidden; },
+    fillAddTypeFormForTest: function(label){ addTypeInput.value = label; },
+    submitAddTypeForTest: function(){ addTypeSubmitBtn.click(); return pause(80); },
+    cancelAddTypeForTest: function(){ addTypeCancelBtn.click(); },
+    attachTypeSelectedValueForTest: function(){ return attachTypeSel.value; },
+    customOrderTypesForTest: function(){ return ORDER_TYPES.filter(function(t){ return t.custom; }).slice(); },
+    savedSuppliersForTest: function(){ return state.savedSuppliers.slice(); },
+    supplierDatalistOptionsForTest: function(){
+      return Array.prototype.map.call(supplierList.querySelectorAll("option"), function(o){ return o.value; });
+    },
+    viewOrdersTypeChipsForTest: function(){
+      return Array.prototype.map.call(viewOrdersList.querySelectorAll(".order-row"), function(row){
+        var chip = row.querySelector(".type-chip");
+        return chip ? { text: chip.textContent, className: chip.className } : null;
+      });
+    },
     inboxCountForTest: function(){ return state.project ? state.project.inbox.length : 0; },
     itemBadgeCountForTest: function(level, room, joineryId){
       var key = itemKey(level, room, joineryId);

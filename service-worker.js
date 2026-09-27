@@ -67,8 +67,20 @@
 // uses. Also: "we also need to be able to mark it as recieved on the
 // orders app" -- attached orders now have a "Received" checkbox + date
 // in the View orders modal (non-destructive, toggles either way).
+//
+// v4 (2026-09-27, same day): "need to be able to add more sub
+// catergories manually, but ensure no duplicates" -- the Attach modal's
+// Type select now has a "+ Add new type..." option; new types are
+// stored root-level (Projects/Sub Orders Types.json), slug-deduped so a
+// case/whitespace variant can never create a second entry, and render
+// with one neutral chip style rather than a new hue (the base four
+// already sit at the dataviz validator's own colour-safety ceiling).
+// Also: "and supplier names get saved, also no duplicates" -- the
+// Supplier field now autocompletes from a root-level, deduped list
+// (Projects/Sub Orders Suppliers.json), updated as a side effect of
+// every successful attach.
 var ICON_VERSION = "v1";
-var CACHE_NAME = "utzline-sub-orders-cache-v3";
+var CACHE_NAME = "utzline-sub-orders-cache-v4";
 
 var PRECACHE_URLS = [
   "./",

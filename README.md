@@ -1,6 +1,14 @@
 # UTZLINE Sub Orders — installable app
 
-**Current version: v3** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+**Current version: v4** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+
+**v4 (2026-09-27, same day) — custom order types, saved supplier names.** Andrew, two follow-up requests: *"orders app, need to be able to add more sub catergories manually, but ensure no duplicates"* and, right after, *"and supplier names get saved, also no duplicates."*
+
+- **Custom order types.** The Attach modal's Type select now has a trailing **"+ Add new type…"** option, opening a small prompt for a new category name. New types are stored root-level (`Projects/Sub Orders Types.json`, shared across every project — same precedent as `company-logo.png`), not per-project, since a subcontractor category is a fact about the business rather than one job.
+- **No duplicates, by construction.** Every type name is slugified (lowercase, trimmed, non-alphanumeric collapsed to hyphens) into its storage key, so `"Glass"`, `"glass"` and `" Glass "` all resolve to the same key — a second, separate entry can never be created. Trying to add one that already exists (base or custom) just selects the existing match instead of erroring.
+- **Colour.** A custom type deliberately gets **no new hue** — the base four already sit right at the `dataviz` validator's own documented colour-safety ceiling (see the v1 notes below) — so every custom type renders with one neutral chip style instead, identified by its text label alone.
+- **Saved supplier names.** The Supplier field now autocompletes (via a `<datalist>`) from a root-level, deduped list (`Projects/Sub Orders Suppliers.json`). A successful attach saves that order's supplier name if it isn't already on the list (case/whitespace-insensitive match) — free typing is never blocked; the list only ever suggests previously-used names.
+- New regression coverage for adding a custom type (including the duplicate-rejection path, base and custom, with case/whitespace variants), the type's neutral chip rendering, and the supplier autocomplete/dedup behaviour — all checks pass.
 
 **v3 (2026-09-27, same day) — Levels/Rooms/Items hierarchy, "mark as received."** Andrew, two follow-up requests right after seeing v2: *"and the orders app needs the same folder hierachy (projects / levels / rooms / joinery items)"* and *"we also need to be able to mark it as recieved on the orders app."*
 
