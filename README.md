@@ -1,6 +1,15 @@
 # UTZLINE Sub Orders — installable app
 
-**Current version: v7** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+**Current version: v9** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+
+**v9 (2026-10-01) — RC 1.0: code-only file names -- joinery codes, not descriptions, in every file and folder name (path-limit round, fourth build).**
+
+- Andrew: *"have a real good think about how we can minimise filepaths, maybe we need to lose the joinery descriptions and just have joinery codes. give me a solid solution"* -- then *"I have no actual current files so dont care if I need to start again"*. Every folder and file kept for ONE joinery item is now named by the item's **file name** -- its joinery code (e.g. `JG.33.1`; a second item with the same code is `JG.33.1 (2)`), chosen once by UTZLINE Projects when the item is made or imported and saved on the item in `joinery-items.json` (`fileKey`), never changed afterwards -- instead of `<Level> - <Room> - <Code>` (64 characters for the pilot's `Ground Floor - G.33 - Change Cubical & Patient Consent - JG.33.1`). The level, room and description stay inside the records and `joinery-items.json`, so every screen still shows them.
+- Records carry the author's **initials** and a two-digit-year stamp (`JG.33.1 -- AU - 26-10-01 16-25-35-281 - set.json`, in a level folder cut to 30 characters); imported files are **renamed** on the way in (the name they came in with is kept in the record or the `.json` beside the file and is what the screen shows). On the pilot's own folder (88 characters) the longest path is now 121 of the 163 the project folder leaves -- project folders up to about 130 characters deep work.
+- **Clean break:** nothing is read under the old long names. Set the project up again in UTZLINE Projects (it gives every item its file name when the project is opened) -- the other apps pick the names up from `joinery-items.json`.
+- Sub Orders: An item's orders file is `Orders/<code>.json`; a dropped file is saved as `Files/Order - <yyyy-mm-dd hh-mm-ss> - <code or first 8 of its id>.<ext>` (the original name stays in the order and is what the screen shows).
+
+**v8 (2026-10-01, RC 1.0):** Light mode: the header still had its dark background hard-coded (Andrew: *"not all stuff changes to light mode"*); it follows the theme now.
 
 **v7 (2026-09-30, RC 1.0):** Day / night mode (Andrew: *"give me day / noght mode for all apps"*). The shared `UtzTheme` module adds a sun / moon button to the header; the choice is kept in `localStorage` as `utzline-theme` and shared by every UTZLINE app on the device, defaulting to the device's own light / dark setting. A light palette was added for every colour the app uses. No data-format changes.
 

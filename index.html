@@ -39,11 +39,13 @@
       Inbox/<id>.json   -- pending orders: dropped in, not yet attached
                             to any joinery item. {id, fileName, filePath,
                             storedName, fileSize, droppedAt}
-      Files/<id>-<sanitized original name>
+      Files/Order - <YYYY-MM-DD HH-mm-ss> - <item's file name | first 8 of id><.ext>
                         -- the raw bytes of the dropped file, kept
                             regardless of whether the order is currently
-                            attached or back in the inbox
-      Orders/<Level> - <Room> - <JoineryId>.json
+                            attached or back in the inbox (2026-10-01: the
+                            original name is kept only in the record's
+                            fileName, never on disk)
+      Orders/<item's file name>.json  (its joinery code, e.g. "JG.33.1")
                         -- one JSON ARRAY per joinery item, every order
                             ever attached to that item. Each entry:
                             {id, type, requiredByDate, supplier,
@@ -386,7 +388,7 @@
     gap: 10px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
-    background: #140a10;
+    background: var(--utz-header, #140a10); /* (v8) light mode */
     flex: 0 0 auto;
   }
   header img{ width: 32px; height: 32px; border-radius: 8px; }
@@ -579,6 +581,137 @@
 
   footer.app-foot{ text-align: center; color: var(--muted2); font-size: 11px; padding: 10px 0 4px; }
 </style>
+<!-- UTZLINE-ITEM-FILES BEGIN (generated from shared/item-files -- don't edit here) -->
+<script>
+/* ============================== UTZLINE item file names (2026-10-01) ==============================
+   Andrew: "have a real good think about how we can minimise filepaths, maybe we
+   need to lose the joinery descriptions and just have joinery codes. give me a
+   solid solution" -- then "I have no actual current files so dont care if I
+   need to start again".
+
+   Every folder and file an app keeps for ONE joinery item is named by that
+   item's FILE NAME ("fileKey"): its joinery code, e.g.
+       Project Saves/Shop Drawings/JG.33.1/...
+       Project Saves/UTZLINE Events/Joinery Schedule/Ground Floor/JG.33.1 -- AU - 26-10-01 16-25-35-281 - set.json
+   instead of "<Level> - <Room> - <Code>" (64 characters for the pilot's
+   "Ground Floor - G.33 - Change Cubical & Patient Consent - JG.33.1"). The
+   level, room and description stay inside the records and joinery-items.json,
+   so every screen still shows them.
+
+   The file name is chosen ONCE, by UTZLINE Projects, when the item is made
+   (or imported), and saved on the item in joinery-items.json ("fileKey"):
+     - the code, cleaned of the characters Windows refuses and cut to 40;
+     - a code the project already uses (one work order dropped in two rooms,
+       which Projects allows) gets " (2)", " (3)" ...; Windows sees "JG.1"
+       and "jg.1" as one name, so the check ignores case;
+     - an item with no code: its room, else "Item".
+   It never changes afterwards -- an item moved to another room, or a code
+   edited later, keeps its file name, so nothing is ever left behind.
+
+   Every other app reads joinery-items.json and register()s it; fileKey()
+   then gives an item's file name from its level, room and code. An item it
+   doesn't know (an older joinery-items.json without file names) gets the
+   same rule as Projects' first choice -- the cleaned code.
+
+   Generated into each app between UTZLINE-ITEM-FILES markers from
+   shared/item-files/item-files.js -- edit it there. */
+(function(){
+  "use strict";
+  var MAX = 40;
+  function clean(s, max){
+    var c = String(s == null ? "" : s).replace(/[<>:"/\\|?*\x00-\x1f]/g, "").replace(/\s+/g, " ").trim()
+      .replace(/^[._ ]+|[._ ]+$/g, "").replace(/-{2,}/g, "-");
+    max = max || MAX;
+    if (c.length > max) c = c.slice(0, max).replace(/[ ._-]+$/, "");
+    return c;
+  }
+  // The file name an item would get if nothing else in the project had it.
+  function baseOf(code, room){ return clean(code) || clean(room, 30) || "Item"; }
+  function low(s){ return String(s == null ? "" : s).trim().toLowerCase(); }
+  function tripleKey(level, room, code){ return low(level) + "\u0000" + low(room) + "\u0000" + low(code); }
+  // A file name that can go on disk as given (what assign() would have made).
+  function valid(k){ return typeof k === "string" && k.length > 0 && k.length <= MAX + 6 && clean(k, MAX + 6) === k; }
+
+  // UTZLINE Projects: give every item that has none its file name (in the
+  // order the items are listed). Items that already have one keep it.
+  // -> how many were given one.
+  function assign(items){
+    if (!Array.isArray(items)) return 0;
+    var used = {}, byTriple = {}, n = 0;
+    // a file name two DIFFERENT items both carry (a deleted item put back
+    // after its name was given out again): the later one gets a fresh name.
+    // The same item twice (same level, room and code -- an import's
+    // duplicate record) is one item to every app, so it keeps one name.
+    items.forEach(function(it){
+      if (!it || !valid(it.fileKey)) return;
+      var k = it.fileKey.toLowerCase(), t = tripleKey(it.level, it.room, it.joineryId);
+      if (used[k] && used[k] !== t) it.fileKey = ""; else { used[k] = t; if (!byTriple[t]) byTriple[t] = it.fileKey; }
+    });
+    items.forEach(function(it){
+      if (!it || typeof it !== "object" || valid(it.fileKey)) return;
+      var t = tripleKey(it.level, it.room, it.joineryId);
+      if (byTriple[t]){ it.fileKey = byTriple[t]; n++; return; }
+      var b = baseOf(it.joineryId, it.room), k = b, i = 2;
+      while (used[k.toLowerCase()]){ k = b + " (" + i + ")"; i++; }
+      it.fileKey = k; used[k.toLowerCase()] = t; byTriple[t] = k; n++;
+    });
+    return n;
+  }
+
+  // Each project's items, as read by the app: project (its folder name) ->
+  // { triple -> fileKey }. The project read last is the "current" one.
+  var maps = {}, current = null;
+  function register(project, items){
+    var m = {};
+    (Array.isArray(items) ? items : []).forEach(function(it){
+      if (!it || typeof it !== "object") return;
+      var t = tripleKey(it.level, it.room, it.joineryId);
+      if (!(t in m)) m[t] = valid(it.fileKey) ? it.fileKey : baseOf(it.joineryId, it.room); // the first of a duplicated record decides
+    });
+    project = String(project || "");
+    maps[project] = m; current = project;
+    return m;
+  }
+  // An item's file name from its level, room and code (project: its folder
+  // name, when the app knows it -- the schedules' Overall views hold several).
+  function fileKey(level, room, code, project){
+    var t = tripleKey(level, room, code), hit;
+    if (project != null && maps[String(project)]){
+      hit = maps[String(project)][t];
+      if (hit) return hit;
+    } else {
+      if (current != null && maps[current] && maps[current][t]) return maps[current][t];
+      var found = null, clash = false;
+      Object.keys(maps).forEach(function(p){ var v = maps[p][t]; if (v){ if (found && found !== v) clash = true; found = found || v; } });
+      if (found && !clash) return found;
+    }
+    return baseOf(code, room);
+  }
+
+  // A user's initials for a file name: the first letter of up to three
+  // words ("Andrew Utz" -> "AU"); a one-word name keeps its first three
+  // letters ("Cara" -> "Car"); none -> "U".
+  function initials(name){
+    var words = String(name || "").split(/[\s_-]+/).filter(function(w){ return /[A-Za-z0-9]/.test(w); });
+    var ini = words.length >= 2 ? words.slice(0, 3).map(function(w){ return w.charAt(0).toUpperCase(); }).join("") : (words[0] || "U").slice(0, 3);
+    return clean(ini, 3) || "U";
+  }
+  // "26-10-01 16-25-35" (+ "-281" with ms) -- local time, two-digit year.
+  function stamp(d, ms){
+    d = d || new Date();
+    function p(n, w){ n = String(n); while (n.length < (w || 2)) n = "0" + n; return n; }
+    return p(d.getFullYear() % 100) + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + "-" + p(d.getMinutes()) + "-" + p(d.getSeconds()) + (ms ? "-" + p(d.getMilliseconds(), 3) : "");
+  }
+
+  window.UtzItemFiles = {
+    version: 1, MAX: MAX,
+    clean: clean, baseOf: baseOf, valid: valid, assign: assign, register: register, fileKey: fileKey,
+    initials: initials, stamp: stamp, tripleKey: tripleKey,
+    _maps: function(){ return maps; }
+  };
+})();
+</script>
+<!-- UTZLINE-ITEM-FILES END -->
 </head>
 <body>
 
@@ -801,21 +934,46 @@
     });
   }
   function pause(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
-  function sanitizeFileBase(name){
-    var cleaned = String(name || "")
-      .replace(/[<>:"/\\|?*\x00-\x1f]/g, "")
-      .trim()
-      .replace(/^[._]+|[._\s]+$/g, "");
-    return cleaned.slice(0, 120) || "file";
-  }
   function uuid(){
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
     return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
   }
   function itemKey(level, room, joineryId){ return (level||"") + "\u0000" + (room||"") + "\u0000" + (joineryId||""); }
-  function orderFileNameFor(level, room, joineryId){
-    return sanitizeFileBase(level) + " - " + sanitizeFileBase(room) + " - " + sanitizeFileBase(joineryId) + ".json";
+  /* (2026-10-01, code-only file names) Andrew: "have a real good think about
+     how we can minimise filepaths, maybe we need to lose the joinery
+     descriptions and just have joinery codes. give me a solid solution" --
+     then "I have no actual current files so dont care if I need to start
+     again". An item's Orders file is "<the item's file name>.json" -- its
+     joinery code (UtzItemFiles: chosen once by UTZLINE Projects, saved on the
+     item in joinery-items.json as "fileKey"; " (2)" for a second item with the
+     same code) -- no longer "<Level> - <Room> - <Code>.json" (up to 64
+     characters on the pilot before the ".json", on top of an 88-character
+     OneDrive project path; Windows allows 259). The Scheduler, UTZLINE
+     Projects, the ITPs and the schedules read and write exactly this name.
+     project: the project folder's name (this app shows several projects), so
+     the right project's items decide. Level/room/code are never parsed back
+     out of the name: listAllAttachedOrders keys by the JSON body. */
+  function orderFileNameFor(level, room, joineryId, project){
+    return UtzItemFiles.fileKey(level, room, joineryId, project) + ".json";
   }
+  /* A dropped file's name on disk is never its original name (that stays in
+     the record's fileName, which is what every screen shows -- Andrew: not
+     "the old filenames"):
+       Files/Order - <YYYY-MM-DD HH-mm-ss> - <the item's file name><.ext>   dropped onto an item
+       Files/Order - <YYYY-MM-DD HH-mm-ss> - <first 8 of its id><.ext>       dropped into the inbox (no item yet)
+     The same shape the Scheduler's attachSubOrderFile saves (and a job note);
+     the extension is kept, lower-cased, so the file opens as before. A name
+     already taken (two drops in one second) gets " (2)", " (3)" -- two files
+     must never overwrite each other. Both names are bounded (an item's file
+     name is 46 characters at most), so no path probe is needed here. */
+  function orderStamp(d){
+    d = d || new Date();
+    function p2(n){ return (n < 10 ? "0" : "") + n; }
+    return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + " " + p2(d.getHours()) + "-" + p2(d.getMinutes()) + "-" + p2(d.getSeconds());
+  }
+  function orderExtOf(name){ var m = /\.[A-Za-z0-9]{1,8}$/.exec(String(name || "")); return m ? m[0].toLowerCase() : ""; }
+  function orderStoredNameFor(lead, originalName){ return "Order - " + orderStamp() + " - " + lead + orderExtOf(originalName); }
+  function shortIdOf(id){ return String(id || "").replace(/[^0-9A-Za-z]/g, "").slice(0, 8) || "order"; }
   // The original four fixed types (the ones the dataviz skill's own
   // validator confirmed are simultaneously colour-distinguishable, up to
   // its own documented 3-4-slot ceiling). Custom types added via "+ Add
@@ -1019,6 +1177,7 @@
   }
   function readProjectItems(projectHandle){
     return readJsonArrayFileStrict(projectHandle, "joinery-items.json", "joinery-items.json").then(function(raw){
+      UtzItemFiles.register(projectHandle.name, raw); // (2026-10-01) each item's file name
       return raw.map(function(it){
         return {
           level: it.level || "",
@@ -1286,13 +1445,37 @@
     });
   }
 
-  function addInboxOrderFromFile(projectHandle, file){
+  // (2026-10-01, code-only file names) the file is saved under a name made
+  // here -- "Order - <stamp> - <the item's file name | first 8 of its id><.ext>"
+  // -- never its original name (kept in the record's fileName, which is what
+  // every screen shows). item: the joinery item it was dropped onto, if any.
+  // A name already taken gets " (2)", " (3)" so two drops never overwrite.
+  function freeOrderStoredName(projectHandle, name){
+    return ensureFilesDir(projectHandle).then(function(dirH){
+      var m = /^(.*?)(\.[A-Za-z0-9]{1,8})?$/.exec(name), base = m[1], ext = m[2] || "";
+      function tryName(n, i){
+        var cand = i > 1 ? base + " (" + i + ")" + ext : name;
+        return dirH.getFileHandle(cand, { create: false }).then(function(){
+          return i < 200 ? tryName(n, i + 1) : cand;
+        }, function(){ return cand; });
+      }
+      return tryName(name, 1);
+    });
+  }
+  function addInboxOrderFromFile(projectHandle, file, item){
     var id = uuid();
-    var storedName = id + "-" + sanitizeFileBase(file.name || "order");
+    var lead = item ? UtzItemFiles.fileKey(item.level, item.room, item.joineryId, projectHandle.name) : shortIdOf(id);
+    return freeOrderStoredName(projectHandle, orderStoredNameFor(lead, file.name)).then(function(storedName){
+      return file.arrayBuffer().then(function(buf){
+        return writeOrderFileBytes(projectHandle, storedName, buf);
+      }).then(function(){ return storedName; });
+    }).then(function(storedName){
+      return finishInboxOrder(projectHandle, file, id, storedName);
+    });
+  }
+  function finishInboxOrder(projectHandle, file, id, storedName){
     var filePath = "Project Saves/UTZLINE Sub Orders/Files/" + storedName;
-    return file.arrayBuffer().then(function(buf){
-      return writeOrderFileBytes(projectHandle, storedName, buf);
-    }).then(function(){
+    return Promise.resolve().then(function(){
       var rec = {
         id: id,
         fileName: file.name || "order",
@@ -1726,7 +1909,7 @@
   function handleFilesDroppedOnItem(item, files){
     if (!files.length || !state.project) return;
     var ph = state.project.projectHandle;
-    Promise.all(files.map(function(f){ return addInboxOrderFromFile(ph, f); })).then(function(recs){
+    Promise.all(files.map(function(f){ return addInboxOrderFromFile(ph, f, item); })).then(function(recs){
       state.project.inbox = state.project.inbox.concat(recs);
       renderInbox();
       if (recs.length > 1) showToast(recs.length + " files added — attaching the first now, the rest are waiting in the inbox.");
