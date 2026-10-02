@@ -342,8 +342,377 @@
   /* light palette (day mode) */
   :root[data-theme="light"]{ --bg: #f8f2f6; --panel: #ffffff; --panel2: #f2e6ee; --border: #dfc9d8; --text: #2a0a1b; --muted: #7a5e70; --muted2: #9c8394; --accent: #b8267a; --accent-ink: #ffffff; --accent-soft: #f7dcea; --danger: #d43b3b; --warn: #b7791f; --ok: #1f9a4f; --utz-header: #ffffff; --utz-deep: #efe3ea; }
   :root[data-theme="light"] select, :root[data-theme="light"] input, :root[data-theme="light"] textarea{ color-scheme: light; }
+  /* (2026-10-02) dark mode: a control no app style has touched gets a real dark background AND readable text (zero specificity, so every
+     app's own control styles still win). A native select's open list and its options take the page's light text colour but the browser's
+     default white background otherwise -- "white writing on a pale background, unreadable". */
+  :where(:root:not([data-theme="light"])) :where(select, option, optgroup, textarea, input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=button]):not([type=submit])){ background-color: var(--panel2, var(--surface-2, #202020)); color: var(--text, var(--text-primary, #eee)); }
+  :where(:root:not([data-theme="light"])) :where(select, input, textarea){ color-scheme: dark; }
+  :where(:root:not([data-theme="light"])) :where(option:checked, option:hover){ background-color: var(--accent-soft, var(--surface-3, #33415c)); color: var(--text, var(--text-primary, #fff)); }
+  :where(:root:not([data-theme="light"])) :where(select:disabled, input:disabled, textarea:disabled, option:disabled){ color: var(--muted, var(--text-secondary, #9aa)); }
 </style>
 <!-- UTZLINE-THEME END -->
+<!-- UTZLINE-BUILDERS BEGIN (generated from shared/builders -- don't edit here) -->
+<script>
+/* ============================== UTZLINE builders + their logos (2026-09-30) ==============================
+   Andrew: "can each project when started input the builders logo, this could be saved per builder. when
+   we start a project the builder name can be a drop down with option to add new, if adding new it asks
+   to drag and drop their logo. this can be used on the project headers" (screens + PDFs).
+   Kept once in the "logos" folder at the Projects ROOT (2026-10-02: Andrew, "move the company and builders logos
+   into a logos folder"), never per project. Readers look in logos/ FIRST and fall back to the Projects root, so
+   files an older version left at the root keep working; only UTZLINE Projects writes (always into logos/) and it
+   copies the root files across once (UtzBuilders.migrate -- copies, never moves or deletes):
+     logos/company-logo.png
+     logos/utzline-builders.json            { schemaVersion: 1, updatedAt, builders: [ { name, logo, addedBy, addedAt } ] }
+     logos/utzline-builder-logo - <slug>.png  the logo (PNG, longest side <= 600 px)
+   ("logos" is a reserved root folder name in every app, so it is never listed as a project.)
+   A project only stores the builder's NAME (project-meta.json "contractor", as before); the logo is looked
+   up by name (case-insensitive). Written by UTZLINE Projects only; every app reads.
+     UtzBuilders.list(rootH)                      -> Promise<[{name, logo}]>   ([] when the file isn't there)
+     UtzBuilders.add(rootH, name, file, by)       -> Promise<builder>          (file may be null: name only)
+     UtzBuilders.setLogo(rootH, name, file, by)   -> Promise<builder>
+     UtzBuilders.logoUrl(rootH, name)             -> Promise<string|null>      (object URL, cached per root)
+     UtzBuilders.logoDataUrl(rootH, name, maxPx)  -> Promise<string|null>      (for PDFs)
+     UtzBuilders.contractorOf(projectH)           -> Promise<string>           (project-meta.json "contractor", "" if none)
+     UtzBuilders.mount(el, rootH, name)           -> shows the logo in/next to a header element (adds <img class="utz-builder-logo">);
+                                                     an element carrying data-utz-top="screenA,screenB" (the ids of the project screens)
+                                                     puts it at the FAR RIGHT OF THE TOP BAR instead (<img class="utz-top-builder"> in the
+                                                     <header>, shown only while one of those screens is up and the project has a logo)
+     UtzBuilders.logoFileHandle(rootH, name)      -> Promise<FileSystemFileHandle>  (logos/ first, then the root) -- company-logo.png etc.
+     UtzBuilders.migrate(rootH)                   -> Promise<number>           (Projects only: copies root-level logo files into logos/)
+     UtzBuilders.forget(rootH)                    -> drops the caches (after a save)
+   Plain ES5. */
+(function(){
+  "use strict";
+  if (window.UtzBuilders) return;
+  var FILE = "utzline-builders.json", PREFIX = "utzline-builder-logo - ";
+  var cache = {}; // rootKey -> { list: Promise, urls: {nameLower: Promise<url|null>} }
+  function rootKey(h){ return (h && h.name) || "root"; }
+  function slug(name){ return String(name || "").trim().replace(/[\\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 80); }
+  function norm(name){ return String(name || "").trim().toLowerCase(); }
+  function readText(h, name){
+    return h.getFileHandle(name, { create: false }).then(function(fh){ return fh.getFile(); }).then(function(f){ return f.text(); });
+  }
+  function notFound(err){ return !!(err && (err.name === "NotFoundError" || err.name === "TypeMismatchError")); }
+  var LOGOS = "logos";
+  function logosDir(rootH, create){
+    if (!rootH || typeof rootH.getDirectoryHandle !== "function"){ var e = new Error("no logos folder"); e.name = "NotFoundError"; return Promise.reject(e); }
+    return rootH.getDirectoryHandle(LOGOS, { create: !!create });
+  }
+  // the file `name` as a handle: logos/ first, the Projects root as the fallback (older layouts, test stand-ins)
+  function logoFileHandle(rootH, name){
+    return logosDir(rootH, false).then(function(d){ return d.getFileHandle(name, { create: false }); }).then(null, function(){ return rootH.getFileHandle(name, { create: false }); });
+  }
+  function readLogoText(rootH, name){ return logoFileHandle(rootH, name).then(function(fh){ return fh.getFile(); }).then(function(f){ return f.text(); }); }
+  function readDoc(rootH){
+    return readLogoText(rootH, FILE).then(function(t){
+      var d = JSON.parse(t);
+      if (!d || typeof d !== "object" || !Array.isArray(d.builders)) throw new Error("utzline-builders.json isn't the expected shape");
+      d.builders = d.builders.filter(function(b){ return b && typeof b.name === "string" && b.name.trim(); });
+      return d;
+    }, function(err){ if (notFound(err)) return { schemaVersion: 1, updatedAt: null, builders: [] }; throw err; });
+  }
+  function writeText(h, name, text){
+    return h.getFileHandle(name, { create: true }).then(function(fh){ return fh.createWritable(); }).then(function(w){ return w.write(text).then(function(){ return w.close(); }); });
+  }
+  function writeBlob(h, name, blob){
+    return h.getFileHandle(name, { create: true }).then(function(fh){ return fh.createWritable(); }).then(function(w){ return w.write(blob).then(function(){ return w.close(); }); });
+  }
+  function sortByName(list){ return list.sort(function(a, b){ return a.name.localeCompare(b.name, undefined, { sensitivity: "base" }); }); }
+  function list(rootH){
+    var k = rootKey(rootH);
+    if (!cache[k]) cache[k] = { list: null, urls: {} };
+    if (!cache[k].list) cache[k].list = readDoc(rootH).then(function(d){ return sortByName(d.builders.map(function(b){ return { name: b.name.trim(), logo: b.logo || "" }; })); }, function(err){ cache[k].list = null; throw err; });
+    return cache[k].list;
+  }
+  function forget(rootH){ delete cache[rootKey(rootH)]; }
+  // image -> PNG blob, longest side <= maxPx (a logo dropped in as a 4000-px JPEG is not what a header or a PDF needs)
+  function downscale(file, maxPx){
+    return new Promise(function(resolve, reject){
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function(){
+        try{
+          var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height, s = Math.min(1, maxPx / Math.max(w, h));
+          var c = document.createElement("canvas"); c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          URL.revokeObjectURL(url);
+          c.toBlob(function(b){ b ? resolve(b) : reject(new Error("Couldn't read that image")); }, "image/png");
+        }catch(e){ URL.revokeObjectURL(url); reject(e); }
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error("That file isn't an image the app can read")); };
+      img.src = url;
+    });
+  }
+  function upsert(rootH, name, file, by){
+    name = String(name || "").trim();
+    if (!name) return Promise.reject(new Error("The builder needs a name"));
+    return readDoc(rootH).then(function(d){
+      return logosDir(rootH, true).then(function(dir){
+        var logoName = null;
+        var p = file ? downscale(file, 600).then(function(b){ logoName = PREFIX + slug(name) + ".png"; return writeBlob(dir, logoName, b); }) : Promise.resolve();
+        return p.then(function(){
+          var found = null;
+          d.builders.forEach(function(b){ if (norm(b.name) === norm(name)) found = b; });
+          if (!found){ found = { name: name, logo: "", addedBy: by || "", addedAt: new Date().toISOString() }; d.builders.push(found); }
+          if (logoName){ found.logo = logoName; found.logoBy = by || ""; found.logoAt = new Date().toISOString(); }
+          d.schemaVersion = 1; d.updatedAt = new Date().toISOString();
+          return writeText(dir, FILE, JSON.stringify(d, null, 2)).then(function(){ forget(rootH); return { name: found.name, logo: found.logo || "" }; });
+        });
+      });
+    });
+  }
+  function add(rootH, name, file, by){ return upsert(rootH, name, file, by); }
+  function setLogo(rootH, name, file, by){ return upsert(rootH, name, file, by); }
+  function entryFor(rootH, name){
+    return list(rootH).then(function(l){ var n = norm(name); for (var i = 0; i < l.length; i++) if (norm(l[i].name) === n) return l[i]; return null; });
+  }
+  function logoUrl(rootH, name){
+    if (!rootH || !name) return Promise.resolve(null);
+    var k = rootKey(rootH), n = norm(name);
+    if (!cache[k]) cache[k] = { list: null, urls: {} };
+    if (!cache[k].urls[n]) cache[k].urls[n] = entryFor(rootH, name).then(function(b){
+      if (!b || !b.logo) return null;
+      return logoFileHandle(rootH, b.logo).then(function(fh){ return fh.getFile(); }).then(function(f){
+        if (f instanceof Blob) return URL.createObjectURL(f);
+        // a stand-in file object (tests, some wrappers): build a Blob from its bytes
+        return f.arrayBuffer().then(function(ab){ return URL.createObjectURL(new Blob([ab], { type: "image/png" })); });
+      }).catch(function(){ return null; });
+    }, function(){ return null; });
+    return cache[k].urls[n];
+  }
+  function logoDataUrl(rootH, name, maxPx){
+    return logoUrl(rootH, name).then(function(url){
+      if (!url) return null;
+      return new Promise(function(resolve){
+        var img = new Image();
+        img.onload = function(){
+          try{
+            var w = img.naturalWidth, h = img.naturalHeight, s = Math.min(1, (maxPx || 400) / Math.max(w, h));
+            var c = document.createElement("canvas"); c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+            c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+            resolve({ dataUrl: c.toDataURL("image/png"), w: c.width, h: c.height });
+          }catch(e){ resolve(null); }
+        };
+        img.onerror = function(){ resolve(null); };
+        img.src = url;
+      });
+    });
+  }
+  function contractorOf(projectH){
+    if (!projectH) return Promise.resolve("");
+    return readText(projectH, "project-meta.json").then(function(t){ var m = JSON.parse(t); return (m && typeof m.contractor === "string") ? m.contractor.trim() : ""; }, function(){ return ""; });
+  }
+  // el: a header element (or a container); the logo goes in a <img class="utz-builder-logo"> inside it (kept, updated, hidden)
+  function mount(el, rootH, name){
+    if (!el) return Promise.resolve(null);
+    if (el.hasAttribute && el.hasAttribute("data-utz-top")) return mountTop(el, rootH, name);
+    var img = el.querySelector(":scope > img.utz-builder-logo");
+    if (!img){ img = document.createElement("img"); img.className = "utz-builder-logo"; img.alt = ""; img.hidden = true; el.appendChild(img); }
+    var token = (img.__utzToken = (img.__utzToken || 0) + 1);
+    if (!name){ img.hidden = true; img.removeAttribute("src"); return Promise.resolve(null); }
+    img.title = name;
+    return logoUrl(rootH, name).then(function(url){
+      if (img.__utzToken !== token) return url;
+      if (url){ img.src = url; img.hidden = false; } else { img.hidden = true; img.removeAttribute("src"); }
+      return url;
+    });
+  }
+  // ---- the logo at the far right of the top bar (2026-10-02: "builder logo on the far right of the top bar") ----
+  // one <img class="utz-top-builder"> in the app's <header> (the last flex item, just left of the day / night button);
+  // el's data-utz-top lists the ids of the project screens it belongs to -- it shows while one of them is up.
+  var watching = {};
+  function topImg(){
+    var header = document.querySelector("header");
+    if (!header) return null;
+    var img = header.querySelector(":scope > img.utz-top-builder");
+    if (!img){
+      img = document.createElement("img"); img.className = "utz-top-builder"; img.alt = ""; img.hidden = true;
+      header.insertBefore(img, header.querySelector(":scope > .utz-theme-btn"));
+    }
+    return img;
+  }
+  function screenUp(id){ var sc = document.getElementById(id); return !!(sc && !sc.hidden && sc.getClientRects().length); }
+  function refreshTop(){
+    var img = topImg();
+    if (!img) return;
+    var ids = img.__utzScreens || [], up = !ids.length;
+    for (var i = 0; i < ids.length && !up; i++) if (screenUp(ids[i])) up = true;
+    img.hidden = !(up && img.__utzName && img.getAttribute("src"));
+  }
+  function watchScreens(ids){
+    ids.forEach(function(id){
+      var sc = document.getElementById(id);
+      if (!sc || watching[id] === sc || typeof MutationObserver === "undefined") return;
+      watching[id] = sc;
+      new MutationObserver(function(){ refreshTop(); }).observe(sc, { attributes: true, attributeFilter: ["class", "hidden", "style"] });
+    });
+  }
+  function mountTop(el, rootH, name){
+    var img = topImg();
+    if (!img) return Promise.resolve(null);
+    var ids = String(el.getAttribute("data-utz-top") || "").split(/[\s,]+/).filter(Boolean);
+    img.__utzScreens = ids; watchScreens(ids);
+    var token = (img.__utzToken = (img.__utzToken || 0) + 1);
+    img.__utzName = name || "";
+    img.hidden = true;
+    if (!name){ img.removeAttribute("src"); return Promise.resolve(null); }
+    img.title = name;
+    return logoUrl(rootH, name).then(function(url){
+      if (img.__utzToken !== token) return url;
+      if (url) img.src = url; else img.removeAttribute("src");
+      refreshTop();
+      return url;
+    });
+  }
+  // Projects only: copy the logo files an older layout left at the Projects root into logos/ (copies, never moves or deletes)
+  function migrate(rootH){
+    if (!rootH || typeof rootH.values !== "function") return Promise.resolve(0);
+    var found = [], it = rootH.values();
+    function collect(){
+      return it.next().then(function(r){
+        if (r.done) return;
+        var e = r.value;
+        if (e && e.kind === "file" && (e.name === "company-logo.png" || e.name === FILE || e.name.indexOf(PREFIX) === 0)) found.push(e);
+        return collect();
+      });
+    }
+    return collect().then(function(){
+      if (!found.length) return 0;
+      return logosDir(rootH, true).then(function(dir){
+        var n = 0;
+        function next(i){
+          if (i >= found.length) return n;
+          var e = found[i];
+          return dir.getFileHandle(e.name, { create: false }).then(function(){ return next(i + 1); }, function(err){
+            if (!notFound(err)) throw err;
+            return e.getFile().then(function(f){ return writeBlob(dir, e.name, f); }).then(function(){ n++; return next(i + 1); });
+          });
+        }
+        return next(0);
+      });
+    }).then(function(n){ if (n) forget(rootH); return n; }, function(){ return 0; });
+  }
+  window.UtzBuilders = { FILE: FILE, PREFIX: PREFIX, list: list, add: add, setLogo: setLogo, logoUrl: logoUrl, logoDataUrl: logoDataUrl, contractorOf: contractorOf, mount: mount, forget: forget, slug: slug, downscale: downscale, logoFileHandle: logoFileHandle, logosDir: logosDir, migrate: migrate, LOGOS: LOGOS };
+})();
+</script>
+<style>
+  /* ---- UTZLINE builder logo on project headers (2026-09-30) -- see shared/builders/builders.js ---- */
+  img.utz-builder-logo{ height: 30px; max-width: 240px; width: auto; flex: 0 0 auto; box-sizing: border-box; object-fit: contain; vertical-align: middle; margin-left: 10px; border-radius: 4px; background: #fff; padding: 2px; } /* (2026-10-01) the window stretches to suit the logo, same height */
+  img.utz-builder-logo[hidden]{ display: none; }
+  /* ---- the logo at the far right of the top bar (2026-10-02) ---- */
+  img.utz-top-builder{ order: 99; height: 30px; max-width: 200px; width: auto; flex: 0 0 auto; box-sizing: border-box; object-fit: contain; border-radius: 4px; background: #fff; padding: 2px; margin-left: 4px; }
+  img.utz-top-builder[hidden]{ display: none; }
+  @media (max-width: 700px){ img.utz-top-builder{ max-width: 110px; } }
+</style>
+<!-- UTZLINE-BUILDERS END -->
+<!-- UTZLINE-DROP BEGIN (generated from shared/drop -- don't edit here) -->
+<script>
+/* ============================== UTZLINE drag and drop (2026-10-02) ==============================
+   Andrew (2026-10-01): "i want the entire system to be drag and drop (no file selector) for all shop drawings,
+   job notes, orders, workorders, (basically everything)". Every place a file comes in is a drop zone -- no Browse
+   button, no click-to-choose. One tiny module, inlined into every app that takes a file:
+     UtzDrop.zone(el, onFiles, opts)   makes `el` a drop target: lit (class utz-drop-over) while a file is dragged over it,
+                                       onFiles(arrayOfFiles) when one is dropped. opts: { accept: ["pdf","png"] | function(file),
+                                       multiple: false (only the first file is passed), reject: function(files) (nothing acceptable),
+                                       picker: <input type=file> (hidden, kept ONLY for the tablet fallback below) }
+     UtzDrop.feed(input, files)        hands dropped files to an existing hidden <input type=file> change handler unchanged
+     UtzDrop.wire(el, input, opts)     zone + feed in one: the input's own change handler receives the drop
+   Tablets: a long press on a zone opens the system picker, but only on a touch-only device (pointer: coarse and no hover) --
+   where a drop from a file manager is not possible. On a PC / laptop there is no picker anywhere.
+   A file dropped OUTSIDE a zone is ignored (it never navigates the window away from the app and loses the work).
+   Plain ES5. */
+(function(){
+  "use strict";
+  if (window.UtzDrop) return;
+  function hasFiles(e){
+    var t = e && e.dataTransfer && e.dataTransfer.types;
+    if (!t) return false;
+    for (var i = 0; i < t.length; i++) if (t[i] === "Files") return true;
+    return false;
+  }
+  function touchOnly(){
+    try { return !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(hover: hover)").matches); } catch (e) { return false; }
+  }
+  function ext(name){ var m = /\.([A-Za-z0-9]+)$/.exec(String(name || "")); return m ? m[1].toLowerCase() : ""; }
+  function accepts(file, accept){
+    if (!accept) return true;
+    if (typeof accept === "function") return !!accept(file);
+    var x = ext(file.name), t = String(file.type || "").toLowerCase();
+    for (var i = 0; i < accept.length; i++){
+      var a = String(accept[i]).toLowerCase();
+      if (a === x) return true;
+      if (a === "image" && t.indexOf("image/") === 0) return true;
+      if (a === "pdf" && t === "application/pdf") return true;
+    }
+    return false;
+  }
+  // touch-only tablets: a long press opens the system picker (the one place a file selector still exists). `picker` is the hidden
+  // <input type=file>, or anything with a click() (an app that wants a confirm first passes { click: fn }).
+  function longPress(el, picker){
+    if (!el || !picker) return;
+    var timer = null;
+    function clear(){ if (timer){ clearTimeout(timer); timer = null; } }
+    el.addEventListener("pointerdown", function(e){
+      if (!touchOnly() || e.pointerType === "mouse") return;
+      clear(); timer = setTimeout(function(){ timer = null; try { picker.value = ""; picker.click(); } catch (x) {} }, 650);
+    });
+    ["pointerup", "pointercancel", "pointermove", "pointerleave"].forEach(function(t){ el.addEventListener(t, clear); });
+  }
+  function zone(el, onFiles, opts){
+    if (!el || el.__utzDrop) return el;
+    opts = opts || {};
+    el.__utzDrop = true;
+    el.setAttribute("data-utz-drop", "1");
+    var depth = 0;
+    function over(e){
+      if (!hasFiles(e)) return;
+      e.preventDefault(); e.stopPropagation();
+      try { e.dataTransfer.dropEffect = "copy"; } catch (x) {}
+      el.classList.add("utz-drop-over");
+    }
+    el.addEventListener("dragenter", function(e){ if (hasFiles(e)) depth++; over(e); });
+    el.addEventListener("dragover", over);
+    el.addEventListener("dragleave", function(){ depth = Math.max(0, depth - 1); if (!depth) el.classList.remove("utz-drop-over"); });
+    el.addEventListener("drop", function(e){
+      if (!hasFiles(e)) return;
+      e.preventDefault(); e.stopPropagation();
+      depth = 0; el.classList.remove("utz-drop-over");
+      var all = Array.prototype.slice.call(e.dataTransfer.files || []);
+      var ok = all.filter(function(f){ return accepts(f, opts.accept); });
+      if (!ok.length){ if (all.length && typeof opts.reject === "function") opts.reject(all); return; }
+      if (!opts.multiple) ok = ok.slice(0, 1);
+      onFiles(ok);
+    });
+    if (opts.picker) longPress(el, opts.picker);
+    return el;
+  }
+  function feed(input, files){
+    if (!input) return;
+    try {
+      var dt = new DataTransfer();
+      for (var i = 0; i < files.length; i++) dt.items.add(files[i]);
+      input.files = dt.files;
+    } catch (e) { return; }
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  function wire(el, input, opts){
+    opts = opts || {};
+    var o = { accept: opts.accept, multiple: opts.multiple !== undefined ? opts.multiple : !!(input && input.multiple), reject: opts.reject, picker: input };
+    return zone(el, function(files){ feed(input, files); }, o);
+  }
+  // a file dropped anywhere that is NOT a zone must never navigate the window to it
+  function guard(e){ if (hasFiles(e) && !(e.target && e.target.closest && e.target.closest("[data-utz-drop]"))) e.preventDefault(); }
+  window.addEventListener("dragover", guard);
+  window.addEventListener("drop", guard);
+  window.UtzDrop = { longPress: longPress, zone: zone, feed: feed, wire: wire, hasFiles: hasFiles, touchOnly: touchOnly };
+})();
+</script>
+<style>
+  /* ---- UTZLINE drop zones (2026-10-02) -- see shared/drop/drop.js ---- */
+  .utz-drop{ border: 2px dashed var(--border, rgba(128,128,128,.5)); border-radius: 10px; padding: 14px 16px; text-align: center; font-size: 13px; color: var(--muted, var(--text-secondary, inherit)); cursor: default; background: transparent; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+  .utz-drop b{ color: var(--text, var(--text-primary, inherit)); }
+  .utz-drop.utz-drop-over, [data-utz-drop].utz-drop-over{ outline: 3px solid var(--accent, #3b82f6); outline-offset: -3px; background: rgba(59,130,246,.14); }
+</style>
+<!-- UTZLINE-DROP END -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>UTZLINE Sub Orders</title>
 <meta name="theme-color" content="#1a0f16" data-theme-light="#f8f2f6">
@@ -782,7 +1151,7 @@
     <div class="row backrow">
       <button class="btn secondary sm" id="backToHomeBtn" type="button">&larr; All projects</button>
     </div>
-    <h1 id="projectTitle">Loading…</h1>
+    <h1 id="projectTitle" data-utz-top="screen-project,screen-rooms,screen-items">Loading…</h1>
     <p class="sub" id="projectSub"></p>
 
     <div class="card">
@@ -790,9 +1159,6 @@
       <div class="dropzone" id="inboxDropzone">
         <span class="dz-icon">&#128230;</span>
         Drop order files here
-        <div style="margin-top:10px;">
-          <button class="btn secondary sm" id="addOrderFileBtn" type="button">+ Add order file</button>
-        </div>
         <input type="file" id="inboxFileInput" multiple hidden>
       </div>
       <div class="inbox-list" id="inboxList"></div>
@@ -1158,7 +1524,7 @@
      backups, kept directly in the main Projects folder -- isn't a project,
      so it's left out of the project list (the same one-line rule is in
      every app in the family). */
-  function isReservedRootFolderName(name){ return String(name || "").trim().toLowerCase() === "schedule backups"; }
+  function isReservedRootFolderName(name){ return String(name || "").trim().toLowerCase() === "schedule backups" || String(name || "").trim().toLowerCase() === "logos"; }
   function listExistingProjects(rootHandle){
     return listSubdirNames(rootHandle).then(function(names){ return names.filter(function(n){ return !isReservedRootFolderName(n); }); });
   }
@@ -1784,7 +2150,6 @@
   var selectBarName = document.getElementById("selectBarName");
   var selectBarCancelBtn = document.getElementById("selectBarCancelBtn");
   var inboxDropzone = document.getElementById("inboxDropzone");
-  var addOrderFileBtn = document.getElementById("addOrderFileBtn");
   var inboxFileInput = document.getElementById("inboxFileInput");
   var inboxList = document.getElementById("inboxList");
   var inboxEmpty = document.getElementById("inboxEmpty");
@@ -1803,6 +2168,7 @@
   function openProject(folderName){
     showScreen("project");
     projectTitle.textContent = "Loading…";
+    if (window.UtzBuilders) UtzBuilders.mount(projectTitle, state.root, ""); // (2026-10-02) builder logo, far right of the top bar
     projectSub.textContent = "";
     inboxList.innerHTML = "";
     levelsList.innerHTML = "";
@@ -1815,6 +2181,7 @@
       state.activeRoom = null;
       projectTitle.textContent = (p.no ? p.no + " — " : "") + p.name;
       projectSub.textContent = [p.contractor, p.projectManager].filter(Boolean).join(" · ");
+      if (window.UtzBuilders) UtzBuilders.mount(projectTitle, state.root, p.contractor || "");
       renderInbox();
       renderLevels();
     }).catch(function(err){
@@ -1931,7 +2298,7 @@
     var files = (e.dataTransfer && e.dataTransfer.files) ? Array.prototype.slice.call(e.dataTransfer.files) : [];
     handleDroppedFiles(files);
   });
-  addOrderFileBtn.addEventListener("click", function(e){ e.stopPropagation(); inboxFileInput.click(); });
+  UtzDrop.longPress(inboxDropzone, inboxFileInput); // (2026-10-02) drag and drop only -- no Add file button; a touch-only tablet's long press opens the picker
   inboxFileInput.addEventListener("change", function(){
     var files = Array.prototype.slice.call(inboxFileInput.files || []);
     handleDroppedFiles(files);

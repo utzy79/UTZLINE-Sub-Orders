@@ -93,7 +93,8 @@
 // retries once, then writes nothing ("unreadable is not empty").
 var ICON_VERSION = "v1";
 // v6 (2026-09-27): "Schedule Backups" folder hidden from the project list.
-var CACHE_NAME = "utzline-sub-orders-cache-v9";
+// v10 (2026-10-02): RC 1.0 -- builder logo far right of the top bar, logos folder, reversed Machined, dark-mode controls, drag and drop only.
+var CACHE_NAME = "utzline-sub-orders-cache-v10";
 
 var PRECACHE_URLS = [
   "./",
