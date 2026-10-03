@@ -92,7 +92,7 @@
   secondary encoding: direct labels, gaps, or texture"). Identity never
   depends on colour alone anywhere in this app.
 
-  Own accent colour: magenta/rose (#d1408f) -- the one hue not already
+  Own accent colour: lime green (#9ccc3a dark / #587f0c light; was magenta/rose #d1408f until 2026-10-02, "the pink is horrible") -- a hue not already
   used by a sibling app (see gen_icons.py's own comment for the full
   list). Own folder picker + IndexedDB persistence
   ("utzline-sub-orders-db"), "readwrite" mode from the start (this app
@@ -340,7 +340,7 @@
   .utz-theme-btn:hover, .utz-theme-btn:focus{ opacity: 1; outline: none; }
   header:has(.utz-theme-btn){ padding-right: 60px; }
   /* light palette (day mode) */
-  :root[data-theme="light"]{ --bg: #f8f2f6; --panel: #ffffff; --panel2: #f2e6ee; --border: #dfc9d8; --text: #2a0a1b; --muted: #7a5e70; --muted2: #9c8394; --accent: #b8267a; --accent-ink: #ffffff; --accent-soft: #f7dcea; --danger: #d43b3b; --warn: #b7791f; --ok: #1f9a4f; --utz-header: #ffffff; --utz-deep: #efe3ea; }
+  :root[data-theme="light"]{ --bg: #f4f7ee; --panel: #ffffff; --panel2: #e8eed9; --border: #cdd9b5; --text: #141c08; --muted: #5f6e48; --muted2: #86946c; --accent: #587f0c; --accent-ink: #ffffff; --accent-soft: #e1efc3; --danger: #d43b3b; --warn: #b7791f; --ok: #1f9a4f; --utz-header: #ffffff; --utz-deep: #e6edd6; }
   :root[data-theme="light"] select, :root[data-theme="light"] input, :root[data-theme="light"] textarea{ color-scheme: light; }
   /* (2026-10-02) dark mode: a control no app style has touched gets a real dark background AND readable text (zero specificity, so every
      app's own control styles still win). A native select's open list and its options take the page's light text colour but the browser's
@@ -563,6 +563,21 @@
       return url;
     });
   }
+  // ---- the COMPANY logo in the centre of the top bar (2026-10-02: "put the company logo in the top header ... full height of header, in the centre") ----
+  // setTopCompany(dataUrlOrUrl) shows / updates / hides one <img class="utz-top-company"> in the app's <header>
+  function setTopCompany(url){
+    var header = document.querySelector("header");
+    if (!header) return;
+    var img = header.querySelector(":scope > img.utz-top-company");
+    if (!url){ if (img){ img.hidden = true; img.removeAttribute("src"); } return; }
+    if (!img){
+      img = document.createElement("img"); img.className = "utz-top-company"; img.alt = "Company logo";
+      header.appendChild(img);
+    }
+    try{ if (window.getComputedStyle(header).position === "static") header.style.position = "relative"; }catch(e){}
+    if (img.getAttribute("src") !== url) img.src = url;
+    img.hidden = false;
+  }
   // Projects only: copy the logo files an older layout left at the Projects root into logos/ (copies, never moves or deletes)
   function migrate(rootH){
     if (!rootH || typeof rootH.values !== "function") return Promise.resolve(0);
@@ -591,7 +606,7 @@
       });
     }).then(function(n){ if (n) forget(rootH); return n; }, function(){ return 0; });
   }
-  window.UtzBuilders = { FILE: FILE, PREFIX: PREFIX, list: list, add: add, setLogo: setLogo, logoUrl: logoUrl, logoDataUrl: logoDataUrl, contractorOf: contractorOf, mount: mount, forget: forget, slug: slug, downscale: downscale, logoFileHandle: logoFileHandle, logosDir: logosDir, migrate: migrate, LOGOS: LOGOS };
+  window.UtzBuilders = { setTopCompany: setTopCompany, FILE: FILE, PREFIX: PREFIX, list: list, add: add, setLogo: setLogo, logoUrl: logoUrl, logoDataUrl: logoDataUrl, contractorOf: contractorOf, mount: mount, forget: forget, slug: slug, downscale: downscale, logoFileHandle: logoFileHandle, logosDir: logosDir, migrate: migrate, LOGOS: LOGOS };
 })();
 </script>
 <style>
@@ -602,8 +617,176 @@
   img.utz-top-builder{ order: 99; height: 30px; max-width: 200px; width: auto; flex: 0 0 auto; box-sizing: border-box; object-fit: contain; border-radius: 4px; background: #fff; padding: 2px; margin-left: 4px; }
   img.utz-top-builder[hidden]{ display: none; }
   @media (max-width: 700px){ img.utz-top-builder{ max-width: 110px; } }
+  /* ---- the company logo in the centre of the top bar (2026-10-02) -- full height of the header ---- */
+  img.utz-top-company{ position: absolute; left: 50%; top: 6px; bottom: 6px; height: calc(100% - 12px); width: auto; max-width: 260px; transform: translateX(-50%); object-fit: contain; box-sizing: border-box; background: #fff; padding: 2px; border-radius: 4px; pointer-events: none; }
+  img.utz-top-company[hidden]{ display: none; }
+  @media (max-width: 760px){ img.utz-top-company{ display: none; } }
 </style>
 <!-- UTZLINE-BUILDERS END -->
+<script>
+/* UTZLINE-ARCHIVE BEGIN -- shared/archive/archive.js (inlined into every app; edit the shared file, then run shared/sync_archive_module.py) */
+/* (2026-10-02) Project archive. Andrew: "we need a proper archive system also if a project has not been opened for a while it can ask
+   would you like to archive this project" / "Archiving to only ever run from projects" / "Projects app only".
+   - Archiving NEVER moves, copies or deletes a project. It only writes one small immutable event file at the Projects root:
+       <root>/Project Archive/<Project> - <yyyy-mm-dd HH-mm-ss-mmm> - archived|restored.json
+     The newest event for a project wins. One folder listing = the whole archive state (no per-project lookups, no file reads).
+   - Only UTZLINE Projects writes those (archive / restore, behind an administrator PIN). Every other app only READS them, to
+     leave archived projects off its project list and registers.
+   - "Opened": every app records, at most once every 6 hours per project per device, <root>/Project Activity/<Project> - <name or device id>.json
+     { project, by, lastOpened }. Best-effort, never blocks, never prompts (skipped when the folder is read-only on this device).
+     One file per person per project, rewritten only by that person -- two people never write the same file.
+   - Projects asks "archive this project?" for any listed project not opened for 90 days (tracking starts the day Projects first lists the
+     folder, so nothing is "stale" on day one).
+   API: UtzArchive.archivedMap(root, force) -> Promise<{lowerName: {name, at, kind}}>   (archived projects only)
+        UtzArchive.filterNames(root, names)  -> Promise<names without the archived ones>   (fails open: any read error shows everything)
+        UtzArchive.archive(root, project, by) / restore(root, project, by) -> Promise<true>
+        UtzArchive.touch(root, project, userName) -> Promise<bool>
+        UtzArchive.staleProjects(root, names, days) -> Promise<[{name, last, days, by, never}]>   (oldest first)
+        UtzArchive.ensureTracking(root) -> Promise<ISO start>      (Projects only)
+        UtzArchive.snoozed() / snooze(days)   -- "Not now" for this device (localStorage, best-effort)
+        UtzArchive.RESERVED = ["project archive", "project activity"]  (folder names no app may list as a project) */
+(function(){
+  "use strict";
+  if (window.UtzArchive) return;
+  var ARCH = "Project Archive", ACT = "Project Activity", STARTED = "_tracking-started.json";
+  var EV_RE = /^(.*) - (\d{4}-\d\d-\d\d \d\d-\d\d-\d\d-\d{3}) - (archived|restored)\.json$/i;
+  var TOUCH_EVERY_MS = 6 * 3600 * 1000, CACHE_MS = 20000;
+  // (2026-10-02) Archiving is ON (it was held back for one week at Andrew's request, then switched on the same day). Set false to turn it off everywhere:
+  // nothing is hidden, nothing is written, no prompt, no archive button.
+  var ENABLED = true;
+  var cache = {}, touched = {};
+  function lc(s){ return String(s || "").trim().toLowerCase(); }
+  function rootKey(h){ return (h && h.name) || "root"; }
+  function pad(n, l){ n = String(n); while (n.length < (l || 2)) n = "0" + n; return n; }
+  function stamp(d){ d = d || new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + "-" + pad(d.getMinutes()) + "-" + pad(d.getSeconds()) + "-" + pad(d.getMilliseconds(), 3); }
+  function safe(s){ return String(s || "").trim().replace(/[\\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 80); }
+  function writeJson(dir, name, obj){
+    return dir.getFileHandle(name, { create: true }).then(function(fh){ return fh.createWritable(); }).then(function(w){
+      return w.write(JSON.stringify(obj, null, 1)).then(function(){ return w.close(); });
+    });
+  }
+  function readJson(dir, name){
+    return dir.getFileHandle(name, { create: false }).then(function(fh){ return fh.getFile(); }).then(function(f){ return f.text(); }).then(function(t){ return JSON.parse(t); });
+  }
+  function forget(root){ delete cache[rootKey(root)]; }
+  function archivedMap(root, force){
+    if (!ENABLED) return Promise.resolve({});
+    if (!root || typeof root.getDirectoryHandle !== "function") return Promise.resolve({});
+    var k = rootKey(root), c = cache[k];
+    if (!force && c && Date.now() - c.at < CACHE_MS) return c.p;
+    var p = root.getDirectoryHandle(ARCH, { create: false }).then(function(d){
+      var latest = {}, it = d.values();
+      function step(){
+        return it.next().then(function(r){
+          if (r.done) return latest;
+          var e = r.value, m = e && e.kind === "file" ? EV_RE.exec(e.name) : null;
+          if (m){
+            var n = lc(m[1]);
+            if (!latest[n] || m[2] > latest[n].at) latest[n] = { name: m[1], at: m[2], kind: lc(m[3]) };
+          }
+          return step();
+        });
+      }
+      return step();
+    }).then(function(latest){
+      var out = {};
+      Object.keys(latest).forEach(function(n){ if (latest[n].kind === "archived") out[n] = latest[n]; });
+      return out;
+    }, function(){ return {}; });
+    cache[k] = { at: Date.now(), p: p };
+    return p;
+  }
+  function filterNames(root, names){
+    return archivedMap(root).then(function(a){ return (names || []).filter(function(n){ return !a[lc(n)]; }); }, function(){ return names || []; });
+  }
+  function writeEvent(root, project, kind, by){
+    return root.getDirectoryHandle(ARCH, { create: true }).then(function(d){
+      var at = new Date();
+      return writeJson(d, project + " - " + stamp(at) + " - " + kind + ".json", { schemaVersion: 1, kind: kind, project: project, at: at.toISOString(), by: by || "" });
+    }).then(function(){ forget(root); return true; });
+  }
+  function archive(root, project, by){ return writeEvent(root, project, "archived", by); }
+  function restore(root, project, by){ return writeEvent(root, project, "restored", by); }
+  function canWrite(root){
+    if (!root || typeof root.queryPermission !== "function") return Promise.resolve(true);
+    return root.queryPermission({ mode: "readwrite" }).then(function(p){ return p === "granted"; }, function(){ return false; });
+  }
+  function deviceId(){
+    try{
+      var id = window.localStorage.getItem("utzline-device-id");
+      if (!id){ id = "dev-" + Math.random().toString(36).slice(2, 8); window.localStorage.setItem("utzline-device-id", id); }
+      return id;
+    }catch(e){ return "dev-" + String(Math.random()).slice(2, 8); }
+  }
+  function touch(root, project, userName){
+    if (!ENABLED) return Promise.resolve(false);
+    if (!root || !project) return Promise.resolve(false);
+    var who = safe(userName) || deviceId(), k = rootKey(root) + "|" + lc(project) + "|" + lc(who), now = Date.now();
+    if (touched[k] && now - touched[k] < TOUCH_EVERY_MS) return Promise.resolve(false);
+    touched[k] = now;
+    return canWrite(root).then(function(ok){
+      if (!ok) return false;
+      return root.getDirectoryHandle(ACT, { create: true }).then(function(d){
+        return writeJson(d, project + " - " + who + ".json", { schemaVersion: 1, project: project, by: userName || "", lastOpened: new Date().toISOString() });
+      }).then(function(){ return true; });
+    }).catch(function(){ delete touched[k]; return false; });
+  }
+  function ensureTracking(root){
+    return root.getDirectoryHandle(ACT, { create: true }).then(function(d){
+      return readJson(d, STARTED).then(function(j){ return j && j.at ? j.at : new Date().toISOString(); }, function(){
+        var at = new Date().toISOString();
+        return writeJson(d, STARTED, { schemaVersion: 1, at: at }).then(function(){ return at; });
+      });
+    }).catch(function(){ return null; });
+  }
+  function lastOpenedMap(root){
+    return root.getDirectoryHandle(ACT, { create: false }).then(function(d){
+      var out = {}, it = d.values(), reads = [];
+      function step(){
+        return it.next().then(function(r){
+          if (r.done) return Promise.all(reads).then(function(){ return out; });
+          var e = r.value;
+          if (e && e.kind === "file" && /\.json$/i.test(e.name) && e.name.charAt(0) !== "_"){
+            reads.push(e.getFile().then(function(f){ return f.text(); }).then(function(t){
+              var j = JSON.parse(t);
+              if (!j || !j.project || !j.lastOpened) return;
+              var n = lc(j.project);
+              if (!out[n] || j.lastOpened > out[n].at) out[n] = { at: j.lastOpened, by: j.by || "" };
+            }).catch(function(){}));
+          }
+          return step();
+        });
+      }
+      return step();
+    }, function(){ return {}; });
+  }
+  function staleProjects(root, names, days){
+    if (!ENABLED) return Promise.resolve([]);
+    days = days || 90;
+    return Promise.all([ensureTracking(root), lastOpenedMap(root), archivedMap(root, true)]).then(function(res){
+      var started = res[0], last = res[1], arch = res[2], now = Date.now(), out = [];
+      (names || []).forEach(function(n){
+        if (arch[lc(n)]) return;
+        var rec = last[lc(n)], iso = rec ? rec.at : started;
+        if (!iso) return;
+        var t = Date.parse(iso);
+        if (isNaN(t)) return;
+        var d = Math.floor((now - t) / 86400000);
+        if (d >= days) out.push({ name: n, last: iso, days: d, by: rec ? rec.by : "", never: !rec });
+      });
+      out.sort(function(a, b){ return b.days - a.days; });
+      return out;
+    });
+  }
+  var SNOOZE_KEY = "utzline-archive-snooze-until";
+  function snoozed(){ try{ return Number(window.localStorage.getItem(SNOOZE_KEY) || 0) > Date.now(); }catch(e){ return false; } }
+  function snooze(days){ try{ window.localStorage.setItem(SNOOZE_KEY, String(Date.now() + (days || 7) * 86400000)); }catch(e){} }
+  window.UtzArchive = { archivedMap: archivedMap, filterNames: filterNames, archive: archive, restore: restore, touch: touch, staleProjects: staleProjects,
+    ensureTracking: ensureTracking, snoozed: snoozed, snooze: snooze, forget: forget, ARCH_DIR: ARCH, ACT_DIR: ACT, RESERVED: ["project archive", "project activity"], _stamp: stamp, ENABLED: ENABLED };
+})();
+/* UTZLINE-ARCHIVE END */
+</script>
+
 <!-- UTZLINE-DROP BEGIN (generated from shared/drop -- don't edit here) -->
 <script>
 /* ============================== UTZLINE drag and drop (2026-10-02) ==============================
@@ -715,22 +898,22 @@
 <!-- UTZLINE-DROP END -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>UTZLINE Sub Orders</title>
-<meta name="theme-color" content="#1a0f16" data-theme-light="#f8f2f6">
+<meta name="theme-color" content="#12160d" data-theme-light="#f4f7ee">
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <style>
   :root{
-    --bg: #1a0f16;
-    --panel: #241522;
-    --panel2: #2d1a29;
-    --border: #3d2438;
-    --text: #f7f0f4;
-    --muted: #c9b3c2;
-    --muted2: #8f7a89;
-    --accent: #d1408f;
-    --accent-ink: #2a0a1b;
-    --accent-soft: #35081f;
+    --bg: #12160d;
+    --panel: #1b2113;
+    --panel2: #232b19;
+    --border: #34402a;
+    --text: #f2f6ea;
+    --muted: #b6c2a3;
+    --muted2: #7f8c6e;
+    --accent: #9ccc3a;
+    --accent-ink: #14200a;
+    --accent-soft: #243208;
     --danger: #ff5d5d;
     --warn: #e0a12c;
     --ok: #33c46a;
@@ -757,7 +940,7 @@
     gap: 10px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
-    background: var(--utz-header, #140a10); /* (v8) light mode */
+    background: var(--utz-header, #0d1209); /* (v8) light mode */
     flex: 0 0 auto;
   }
   header img{ width: 32px; height: 32px; border-radius: 8px; }
@@ -1029,7 +1212,7 @@
 
   // Each project's items, as read by the app: project (its folder name) ->
   // { triple -> fileKey }. The project read last is the "current" one.
-  var maps = {}, current = null;
+  var maps = {}, current = null, rev = {};
   function register(project, items){
     var m = {};
     (Array.isArray(items) ? items : []).forEach(function(it){
@@ -1039,11 +1222,27 @@
     });
     project = String(project || "");
     maps[project] = m; current = project;
+    // (2026-10-02) and the other way round: file name -> where the item is (its level and room), for the
+    // PDFs\IFC / PDFs\SD folders (docsDir below). The first record of a file name decides, like the map above.
+    var r = {};
+    (Array.isArray(items) ? items : []).forEach(function(it){
+      if (!it || typeof it !== "object") return;
+      var k = valid(it.fileKey) ? it.fileKey : baseOf(it.joineryId, it.room), lk = low(k);
+      if (!(lk in r)) r[lk] = { level: it.level == null ? "" : String(it.level), room: it.room == null ? "" : String(it.room) };
+    });
+    rev[project] = r;
     return m;
   }
   // An item's file name from its level, room and code (project: its folder
   // name, when the app knows it -- the schedules' Overall views hold several).
   function fileKey(level, room, code, project){
+    var r = fileKeyRaw(level, room, code, project), proj = project != null ? String(project) : (current != null ? current : ""), lk = low(r);
+    // remember where a file name the project's items don't list lives (a marker not in joinery-items.json yet)
+    if (!rev[proj]) rev[proj] = {};
+    if (!(lk in rev[proj])) rev[proj][lk] = { level: level == null ? "" : String(level), room: room == null ? "" : String(room) };
+    return r;
+  }
+  function fileKeyRaw(level, room, code, project){
     var t = tripleKey(level, room, code), hit;
     if (project != null && maps[String(project)]){
       hit = maps[String(project)][t];
@@ -1072,10 +1271,257 @@
     return p(d.getFullYear() % 100) + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + "-" + p(d.getMinutes()) + "-" + p(d.getSeconds()) + (ms ? "-" + p(d.getMilliseconds(), 3) : "");
   }
 
+  // (2026-10-02) One site measure covers every item linked to a room: the folder under Site Measures that holds
+  // it is named by level + room ("Room - L1 - Room 101"), never by an item. A long name is cut and given a short
+  // hash so two long room names can't meet. -> a name that goes on disk as given.
+  function roomMeasureKey(level, room){
+    var l = clean(level, 14), r = clean(room, 24) || "Room";
+    var cut = String(level == null ? "" : level).length > 14 || String(room == null ? "" : room).length > 24;
+    var k = "Room - " + (l ? l + " - " : "") + r;
+    if (cut || l !== String(level == null ? "" : level).trim() || r !== String(room == null ? "" : room).trim()){
+      var h = 0, src = low(level) + "|" + low(room);
+      for (var i = 0; i < src.length; i++) h = (h * 31 + src.charCodeAt(i)) >>> 0;
+      var hs = h.toString(36).slice(0, 4);
+      if (cut) k = k + " ~" + hs;
+    }
+    return k;
+  }
+
+
+  /* ============================== job notes and shop drawings in PDFs\IFC and PDFs\SD (2026-10-02) ==============================
+     Andrew: "i want every room to have a folder, then the joinery within it" -- job notes and shop drawings now live in
+         PDFs\IFC\<Level>\<Room>\<item file name>\Job note - <stamp> - <code>.pdf
+         PDFs\SD\<Level>\<Room>\<item file name>\<drawing>\REV n - <stamp> - <code>.pdf   (+ Returned\, Approved\)
+     (level cut to 30 like the event folders, room = the room NUMBER, "No level" / "No room" when unknown). The older
+         Project Saves\Job Notes\<item file name>\   and   Project Saves\Shop Drawings\<item file name>\
+     are no longer read (DOC_READ_OLD; Andrew is happy to lose them) and nothing is moved or deleted. docsDir() hands back
+     a stand-in folder (it can list a second, older folder together with the new one, which DOC_READ_OLD switches on).
+     An item moved to another room afterwards keeps its files in the old room's folder: they are not listed with the
+     item (logged in the notes). */
+  var DOC_OLD = { JN: "Job Notes", SD: "Shop Drawings" };
+  // (v98+) the folder under PDFs\ for each kind: job notes are "IFC" (Issued For Construction -- Andrew 2026-10-02: "change JN to IFC"); the code
+  // (and every call site) still says "JN" -- only the folder and the file-name tag read IFC.
+  var DOC_NEW = { JN: "IFC", SD: "SD" };
+  // (2026-10-02, Andrew: "im happy to lose old files, as long as new ones work") the older Project Saves folders
+  // are NOT read any more; set true to list them together with the new ones again.
+  var DOC_READ_OLD = false;
+  var NO_WHERE = { level: "", room: "" }; // an item the app can't place: PDFs\IFC\No level\No room\<item>
+  function levelSeg(level){
+    if (window.UtzEvents && UtzEvents.levelFolder) return UtzEvents.levelFolder(level);
+    return clean(level, 30) || "No level";
+  }
+  // the room NUMBER: the first part with a digit ("H1.MH.040", "101"); no number: the name itself, cut to 14
+  function roomShort(room){
+    var t = String(room || "").trim().split(/\s+/).filter(Boolean), pick = "";
+    for (var i = 0; i < t.length; i++){ if (/\d/.test(t[i])){ pick = t[i]; break; } }
+    return clean(pick || t.join(" "), 14);
+  }
+  function roomSeg(room){ return roomShort(room) || "No room"; }
+  // where an item is: from the items the app read for this project (register), else any project that has the name
+  // once, else the event store's own memory of the key.
+  function where(key, project){
+    var lk = low(key), hit = null;
+    if (project != null && rev[String(project)] && rev[String(project)][lk]) return rev[String(project)][lk];
+    var n = 0;
+    Object.keys(rev).forEach(function(p){ if (rev[p][lk]){ n++; hit = rev[p][lk]; } });
+    if (n === 1) return hit;
+    if (n === 0 && window.UtzEvents && UtzEvents.where){ var w = UtzEvents.where(key); if (w) return w; }
+    return null;
+  }
+  function newDocSegs(branch, key, loc){
+    loc = loc || NO_WHERE;
+    return ["PDFs", DOC_NEW[branch] || branch, levelSeg(loc.level), roomSeg(loc.room), String(key)];
+  }
+  function oldDocSegs(branch, key){ return ["Project Saves", DOC_OLD[branch], String(key)]; }
+  // the folders (from the project folder) a new file for this item is written under -- for the path-length check
+  function docPathSegs(project, branch, key, sub, loc){
+    return newDocSegs(branch, key, loc || where(key, project)).concat(sub || []);
+  }
+
+  function nfErr(name){
+    var e;
+    try{ e = new DOMException("A requested file or directory could not be found: " + name, "NotFoundError"); }
+    catch(x){ e = new Error("A requested file or directory could not be found: " + name); e.name = "NotFoundError"; }
+    return e;
+  }
+  function isNF(err){ return !!(err && (err.name === "NotFoundError" || err.name === "TypeMismatchError" || err.code === 8)); }
+  // folder handles found on the way are remembered per project (a lookup is a quarter of a second on a tablet)
+  var dirMemo = typeof WeakMap === "function" ? new WeakMap() : null;
+  function memoOf(ph){
+    if (!dirMemo) return {};
+    var m = dirMemo.get(ph);
+    if (!m){ m = {}; dirMemo.set(ph, m); }
+    return m;
+  }
+  function walkDirs(ph, segs, create){
+    var m = memoOf(ph), start = 0, cur = ph;
+    for (var i = segs.length - 1; i >= 0; i--){
+      var h = m[segs.slice(0, i + 1).join("\u0000")];
+      if (h){ cur = h; start = i + 1; break; }
+    }
+    var p = Promise.resolve(cur);
+    segs.forEach(function(sg, j){
+      if (j < start) return;
+      p = p.then(function(d){
+        return d.getDirectoryHandle(sg, { create: !!create }).then(function(n){ m[segs.slice(0, j + 1).join("\u0000")] = n; return n; });
+      });
+    });
+    return p.then(null, function(err){
+      if (!isNF(err) && start > 0 && dirMemo) dirMemo.delete(ph); // a remembered handle that failed: forget them all
+      throw err;
+    });
+  }
+  function tryWalk(ph, segs){ return walkDirs(ph, segs, false).then(null, function(err){ if (isNF(err)) return null; throw err; }); }
+  function tryGet(h, method, name){
+    if (!h) return Promise.resolve(null);
+    return h[method](name, { create: false }).then(null, function(err){ if (isNF(err)) return null; throw err; });
+  }
+  function listHandles(h){
+    var out = [];
+    if (!h || typeof h.values !== "function") return Promise.resolve(out);
+    var it = h.values();
+    function step(){ return it.next().then(function(r){ if (r.done) return out; if (r.value) out.push(r.value); return step(); }); }
+    return step();
+  }
+  function iterOver(listP, map){
+    var items = null, i = 0, p = null;
+    var it = { next: function(){
+      if (!p) p = listP().then(function(l){ items = l; });
+      return p.then(function(){ return i < items.length ? { done: false, value: map(items[i++]) } : { done: true, value: undefined }; });
+    } };
+    if (typeof Symbol !== "undefined" && Symbol.asyncIterator) it[Symbol.asyncIterator] = function(){ return it; };
+    return it;
+  }
+
+  // The stand-in folder: `main` is where new files go (the new folder, or the old one for an item that can't be
+  // placed), `alt` the other place to look (the old folder); either may not exist yet -- `main` is made on the
+  // first write, at mainSegs. Listings, lookups and writes work as on a real folder handle.
+  function Ov(ph, mainSegs, main, alt){
+    this.ph = ph; this.mainSegs = mainSegs; this.main = main || null; this.alt = alt || null;
+    this.kind = "directory";
+    this.name = (this.main && this.main.name) || (this.alt && this.alt.name) || mainSegs[mainSegs.length - 1];
+  }
+  Ov.prototype.isUtzOverlay = true;
+  Ov.prototype._ensure = function(){
+    var s = this;
+    if (s.main) return Promise.resolve(s.main);
+    return walkDirs(s.ph, s.mainSegs, true).then(function(h){ s.main = h; return h; });
+  };
+  Ov.prototype.getDirectoryHandle = function(name, opts){
+    var s = this, create = !!(opts && opts.create);
+    return Promise.all([tryGet(s.main, "getDirectoryHandle", name), tryGet(s.alt, "getDirectoryHandle", name)]).then(function(r){
+      if (r[0] || r[1]) return new Ov(s.ph, s.mainSegs.concat(name), r[0], r[1]);
+      if (!create) throw nfErr(name);
+      return s._ensure().then(function(m){ return m.getDirectoryHandle(name, { create: true }); }).then(function(c){
+        return new Ov(s.ph, s.mainSegs.concat(name), c, null);
+      });
+    });
+  };
+  Ov.prototype.getFileHandle = function(name, opts){
+    var s = this, create = !!(opts && opts.create);
+    return Promise.all([tryGet(s.main, "getFileHandle", name), tryGet(s.alt, "getFileHandle", name)]).then(function(r){
+      if (r[0] || r[1]) return r[0] || r[1];
+      if (!create) throw nfErr(name);
+      return s._ensure().then(function(m){ return m.getFileHandle(name, { create: true }); });
+    });
+  };
+  // (only the new folder is tried first; the old one only when the name isn't there)
+  Ov.prototype.removeEntry = function(name, opts){
+    var s = this;
+    function rm(h){ return h ? h.removeEntry(name, opts) : Promise.reject(nfErr(name)); }
+    return rm(s.main).then(null, function(err){ if (!isNF(err)) throw err; return rm(s.alt); });
+  };
+  Ov.prototype._list = function(){
+    var s = this;
+    return Promise.all([listHandles(s.main), listHandles(s.alt)]).then(function(r){
+      var by = {}, order = [];
+      [r[0], r[1]].forEach(function(list, side){
+        list.forEach(function(e){
+          var slot = by[e.name];
+          if (!slot){ slot = by[e.name] = {}; order.push(e.name); }
+          var k = side === 0 ? "m" : "a";
+          if (!slot[k]) slot[k] = e;
+        });
+      });
+      return order.map(function(nm){
+        var sl = by[nm], e = sl.m || sl.a;
+        var md = sl.m && sl.m.kind === "directory" ? sl.m : null, ad = sl.a && sl.a.kind === "directory" ? sl.a : null;
+        return (md || ad) ? new Ov(s.ph, s.mainSegs.concat(nm), md, ad) : e;
+      });
+    });
+  };
+  Ov.prototype.values = function(){ return iterOver(this._list.bind(this), function(e){ return e; }); };
+  Ov.prototype.keys = function(){ return iterOver(this._list.bind(this), function(e){ return e.name; }); };
+  Ov.prototype.entries = function(){ return iterOver(this._list.bind(this), function(e){ return [e.name, e]; }); };
+  if (typeof Symbol !== "undefined" && Symbol.asyncIterator) Ov.prototype[Symbol.asyncIterator] = function(){ return this.entries(); };
+  Ov.prototype.queryPermission = function(o){ var h = this.main || this.alt; return h && h.queryPermission ? h.queryPermission(o) : Promise.resolve("granted"); };
+  Ov.prototype.requestPermission = function(o){ var h = this.main || this.alt; return h && h.requestPermission ? h.requestPermission(o) : Promise.resolve("granted"); };
+
+  // An item's job notes ("JN") or shop drawings ("SD") folder -- the stand-in described above, then `sub` folders
+  // (a drawing's folder, "Returned") below it. create: make what is missing (new folders only); without it a folder
+  // that is in neither place is a NotFoundError, as on a real handle. loc: { level, room } when the caller knows
+  // them (else looked up by file name).
+  function docsDir(ph, branch, key, create, sub, loc){
+    var oldSegs = oldDocSegs(branch, key), mainSegs = newDocSegs(branch, key, loc || where(key, ph && ph.name));
+    return Promise.all([tryWalk(ph, mainSegs), DOC_READ_OLD ? tryWalk(ph, oldSegs) : Promise.resolve(null)]).then(function(r){
+      if (!r[0] && !r[1] && !create) throw nfErr(key);
+      var p = Promise.resolve(new Ov(ph, mainSegs, r[0], r[1]));
+      (sub || []).forEach(function(sg){ p = p.then(function(o){ return o.getDirectoryHandle(sg, { create: !!create }); }); });
+      return p;
+    });
+  }
+  // Every item that has a folder (for a scan: "which items have a shop drawing"): the stand-in folders, each named
+  // by its file name, old and new together.
+  function mapPool(list, n, fn){
+    var i = 0, out = [];
+    function worker(){
+      if (i >= list.length) return Promise.resolve();
+      var mine = list[i++];
+      return fn(mine).then(function(v){ if (v) out.push(v); }, function(){}).then(worker);
+    }
+    var ws = [];
+    for (var w = 0; w < Math.min(n, list.length); w++) ws.push(worker());
+    return Promise.all(ws).then(function(){ return out; });
+  }
+  function subdirs(h){ return listHandles(h).then(function(l){ return l.filter(function(e){ return e.kind === "directory"; }); }); }
+  function docsKeys(ph, branch){
+    var found = {}, order = [];
+    function slot(k){ var lk = low(k); if (!found[lk]){ found[lk] = { key: k, mains: [], alt: null }; order.push(lk); } return found[lk]; }
+    var oldP = (DOC_READ_OLD ? tryWalk(ph, ["Project Saves", DOC_OLD[branch]]) : Promise.resolve(null)).then(function(b){ return b ? subdirs(b) : []; }).then(function(ds){
+      ds.forEach(function(d){ slot(d.name).alt = d; });
+    });
+    var newP = tryWalk(ph, ["PDFs", DOC_NEW[branch] || branch]).then(function(b){ return b ? subdirs(b) : []; }).then(function(levels){
+      return mapPool(levels, 3, function(lv){
+        return subdirs(lv).then(function(rooms){
+          return mapPool(rooms, 3, function(rm){
+            return subdirs(rm).then(function(items){
+              items.forEach(function(d){ slot(d.name).mains.push({ h: d, segs: ["PDFs", DOC_NEW[branch] || branch, lv.name, rm.name, d.name] }); });
+              return 1;
+            });
+          });
+        });
+      });
+    });
+    return Promise.all([oldP, newP]).then(function(){
+      return order.map(function(lk){
+        var f = found[lk], m = f.mains[0] || null;
+        if (f.mains.length > 1){ // the same name in two rooms: the one it is in now
+          var w = where(f.key, ph && ph.name), want = w ? newDocSegs(branch, f.key, w) : null;
+          if (want) f.mains.forEach(function(x){ if (x.segs.join("\u0000") === want.join("\u0000")) m = x; });
+        }
+        if (m) return new Ov(ph, m.segs, m.h, f.alt);
+        return new Ov(ph, newDocSegs(branch, f.key, where(f.key, ph && ph.name)), null, f.alt);
+      });
+    });
+  }
+  function docsForget(){ dirMemo = typeof WeakMap === "function" ? new WeakMap() : null; }
+
   window.UtzItemFiles = {
     version: 1, MAX: MAX,
     clean: clean, baseOf: baseOf, valid: valid, assign: assign, register: register, fileKey: fileKey,
-    initials: initials, stamp: stamp, tripleKey: tripleKey,
+    initials: initials, stamp: stamp, tripleKey: tripleKey, roomMeasureKey: roomMeasureKey,
+    levelSeg: levelSeg, roomShort: roomShort, roomSeg: roomSeg, where: where, docPathSegs: docPathSegs,
+    docsDir: docsDir, docsKeys: docsKeys, docsForget: docsForget, isNotFound: isNF,
     _maps: function(){ return maps; }
   };
 })();
@@ -1524,9 +1970,9 @@
      backups, kept directly in the main Projects folder -- isn't a project,
      so it's left out of the project list (the same one-line rule is in
      every app in the family). */
-  function isReservedRootFolderName(name){ return String(name || "").trim().toLowerCase() === "schedule backups" || String(name || "").trim().toLowerCase() === "logos"; }
+  function isReservedRootFolderName(name){ return String(name || "").trim().toLowerCase() === "schedule backups" || String(name || "").trim().toLowerCase() === "logos" || String(name || "").trim().toLowerCase() === "project archive" || String(name || "").trim().toLowerCase() === "project activity"; }
   function listExistingProjects(rootHandle){
-    return listSubdirNames(rootHandle).then(function(names){ return names.filter(function(n){ return !isReservedRootFolderName(n); }); });
+    return listSubdirNames(rootHandle).then(function(names){ return names.filter(function(n){ return !isReservedRootFolderName(n); }); }).then(function(names){ return window.UtzArchive ? UtzArchive.filterNames(rootHandle, names) : names; }); // (2026-10-02) archived projects stay off every list and register
   }
 
   function readProjectMeta(dirHandle){
@@ -2166,6 +2612,7 @@
   var itemsRoomLabel = document.getElementById("itemsRoomLabel");
 
   function openProject(folderName){
+    try{ if (window.UtzArchive) UtzArchive.touch(state.root, folderName, ""); }catch(e){} // (2026-10-02) "opened"
     showScreen("project");
     projectTitle.textContent = "Loading…";
     if (window.UtzBuilders) UtzBuilders.mount(projectTitle, state.root, ""); // (2026-10-02) builder logo, far right of the top bar

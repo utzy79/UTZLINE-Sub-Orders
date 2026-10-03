@@ -1,6 +1,14 @@
 # UTZLINE Sub Orders — installable app
 
-**Current version: v10** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+**Current version: v13** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+
+**v13 (2026-10-02): new colour.** The magenta/pink accent is replaced by lime green (dark #9ccc3a, light #587f0c), with matching greenish-dark / pale backgrounds and a new icon. Andrew: "The pink is horrible".
+
+**v12 (2026-10-02):** the "Project Archive" and "Project Activity" folders are never listed as projects; archived projects drop off the project list.
+
+**v11 (2026-10-02) — RC 1.0: job notes are IFC.**
+
+- Andrew: *"change JN to IFC"*. Job notes are now **IFC** (Issued For Construction): the folder under `PDFs\` is `PDFs\IFC\<Level>\<Room>\<item>\` (was `PDFs\JN\...`), and a job note's file name carries ` -- IFC -- ` (`<project> -- IFC -- <room> - <code> - <saved>.pdf`; Site Measure and the Scheduler write them). Shared folder code (`UtzItemFiles`), so every app reads the same place; the code still says "JN" internally, only the folder and the tag read IFC. Old `PDFs\JN` folders are not read any more (Andrew: happy to lose old files as long as new ones work); his existing 3749 job notes were renamed and moved to `PDFs\IFC`.
 
 **v10 (2026-10-02) — RC 1.0: builder logo on the top bar, logos folder, reversed Machined, drag and drop only.**
 
