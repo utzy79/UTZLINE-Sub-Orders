@@ -92,7 +92,7 @@
   secondary encoding: direct labels, gaps, or texture"). Identity never
   depends on colour alone anywhere in this app.
 
-  Own accent colour: lime green (#9ccc3a dark / #587f0c light; was magenta/rose #d1408f until 2026-10-02, "the pink is horrible") -- a hue not already
+  Own accent colour: copper (#d9803f dark / #a85a1f light, 2026-10-04; was lime green #9ccc3a; was magenta/rose #d1408f until 2026-10-02, "the pink is horrible") -- a hue not already
   used by a sibling app (see gen_icons.py's own comment for the full
   list). Own folder picker + IndexedDB persistence
   ("utzline-sub-orders-db"), "readwrite" mode from the start (this app
@@ -340,7 +340,7 @@
   .utz-theme-btn:hover, .utz-theme-btn:focus{ opacity: 1; outline: none; }
   header:has(.utz-theme-btn){ padding-right: 60px; }
   /* light palette (day mode) */
-  :root[data-theme="light"]{ --bg: #f4f7ee; --panel: #ffffff; --panel2: #e8eed9; --border: #cdd9b5; --text: #141c08; --muted: #5f6e48; --muted2: #86946c; --accent: #587f0c; --accent-ink: #ffffff; --accent-soft: #e1efc3; --danger: #d43b3b; --warn: #b7791f; --ok: #1f9a4f; --utz-header: #ffffff; --utz-deep: #e6edd6; }
+  :root[data-theme="light"]{ --bg: #f8f3ee; --panel: #ffffff; --panel2: #efe6dc; --border: #dccfc0; --text: #20150a; --muted: #6f5f4e; --muted2: #96856f; --accent: #a85a1f; --accent-ink: #ffffff; --accent-soft: #f6dfc9; --danger: #d43b3b; --warn: #b7791f; --ok: #1f9a4f; --utz-header: #ffffff; --utz-deep: #f0e6db; }
   :root[data-theme="light"] select, :root[data-theme="light"] input, :root[data-theme="light"] textarea{ color-scheme: light; }
   /* (2026-10-02) dark mode: a control no app style has touched gets a real dark background AND readable text (zero specificity, so every
      app's own control styles still win). A native select's open list and its options take the page's light text colour but the browser's
@@ -349,8 +349,218 @@
   :where(:root:not([data-theme="light"])) :where(select, input, textarea){ color-scheme: dark; }
   :where(:root:not([data-theme="light"])) :where(option:checked, option:hover){ background-color: var(--accent-soft, var(--surface-3, #33415c)); color: var(--text, var(--text-primary, #fff)); }
   :where(:root:not([data-theme="light"])) :where(select:disabled, input:disabled, textarea:disabled, option:disabled){ color: var(--muted, var(--text-secondary, #9aa)); }
+  /* (2026-10-04) supplier page */
+  .sup-tools{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  .sup-tools input[type=text]{ flex:1; min-width:180px; }
+  .sup-actions{ padding:8px 10px; border-radius:10px; background: var(--panel2, rgba(128,128,128,.1)); }
+  .sup-selcount{ font-weight:600; margin-right:6px; } .sup-date{ display:inline-flex; gap:6px; align-items:center; font-size:13px; }
+  .sup-scroll{ overflow:auto; max-height: calc(100vh - 260px); max-height: calc(100dvh - 260px); border:1px solid var(--border); border-radius:10px; }
+  .sup-table{ width:100%; border-collapse:collapse; font-size:13.5px; min-width:900px; }
+  .sup-table th, .sup-table td{ padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
+  .sup-table thead th{ position:sticky; top:0; background: var(--panel); z-index:1; cursor:pointer; white-space:nowrap; }
+  .sup-table thead th.sorted::after{ content:" ▲"; font-size:10px; } .sup-table thead th.sorted.desc::after{ content:" ▼"; }
+  .sup-table th.sup-cb, .sup-table td.sup-cb{ width:34px; cursor:default; } .sup-table input[type=checkbox]{ width:18px; height:18px; }
+  .sup-table tr.sup-overdue td{ background: rgba(212,59,59,.10); } .sup-table tr.sup-overdue .sup-req{ color: var(--danger, #d43b3b); font-weight:600; }
+  .sup-table tr.sup-received td{ opacity:.75; } .sup-table tr.sup-sel td{ background: var(--accent-soft, rgba(168,90,31,.15)); }
+  .sup-row-title{ display:flex; justify-content:space-between; gap:8px; } .sup-counts{ font-size:12.5px; color: var(--muted); }
+  .sup-counts b.sup-od{ color: var(--danger, #d43b3b); }
+  #usoPrint{ display:none; }
+  @media print{
+    body > *:not(#usoPrint){ display:none !important; }
+    #usoPrint{ display:block !important; color:#000; background:#fff; font: 11pt/1.35 Arial, sans-serif; }
+    #usoPrint .pp{ page-break-after: always; } #usoPrint .pp:last-child{ page-break-after: auto; }
+    #usoPrint img{ display:block; max-width:100%; max-height:100vh; margin:0 auto; }
+    #usoPrint table{ width:100%; border-collapse:collapse; } #usoPrint th, #usoPrint td{ border:1px solid #999; padding:4px 6px; text-align:left; font-size:9.5pt; }
+    #usoPrint h1{ font-size:15pt; margin:0 0 4px; } #usoPrint .pmeta{ font-size:9.5pt; margin:0 0 10px; color:#333; }
+  }
 </style>
 <!-- UTZLINE-THEME END -->
+<!-- UTZLINE-PDF-VIEW BEGIN (generated from shared/pdf-view -- don't edit here) -->
+<script>
+/* ============================== UTZLINE in-app PDF viewer (2026-10-04) ==============================
+   Andrew: "pdfs only load on tablet sometimes (or need to open them in a different pdf viewer, can this be made more
+   reliable" / "and hardly ever open on my phone, galaxy s25+". Chrome on Android (and the installed apps) has no PDF viewer
+   of its own: a PDF opened with window.open(blob URL) only sometimes reaches one. On a phone / tablet every app now shows
+   PDFs itself with pdf.js (./pdf.min.js + ./pdf.worker.min.js beside each app, precached for offline):
+     - window.open(<blob: URL>) is caught on Android / iOS: the blob is read; a PDF opens here, anything else (a picture)
+       is shown here too. The caller gets a stand-in window back, so its own "popup blocked" fallbacks don't fire.
+     - UtzPdfView.open(blobOrFile, name) can be called directly.
+   The viewer: pages drawn as they scroll into view, at the screen's width (4 GB tablet: one page's pixels at a time
+   beyond the visible ones are let go), Zoom in / out, Share (the device's share sheet), Save (a download) and Close
+   (also the device Back button). A computer keeps opening PDFs in its own viewer, as before.
+   Plain ES5, no dependencies besides pdf.js (loaded on first use). */
+(function(){
+  "use strict";
+  if (window.UtzPdfView) return;
+  var MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "") || (/Macintosh/.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1);
+  var LIB = ["./pdf.min.js", "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"];
+  var WORKER = ["./pdf.worker.min.js", "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js"];
+  var libP = null;
+  function loadLib(){
+    if (window.pdfjsLib && window.pdfjsLib.getDocument) return Promise.resolve(window.pdfjsLib);
+    if (libP) return libP;
+    libP = new Promise(function(resolve, reject){
+      var i = 0;
+      function next(){
+        if (i >= LIB.length){ libP = null; reject(new Error("The PDF viewer couldn't load")); return; }
+        var src = LIB[i], w = WORKER[i]; i++;
+        var el = document.createElement("script"); el.src = src; el.async = true;
+        el.onload = function(){ if (window.pdfjsLib && window.pdfjsLib.getDocument){ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc = w; }catch(e){} resolve(window.pdfjsLib); } else next(); };
+        el.onerror = function(){ if (el.parentNode) el.parentNode.removeChild(el); next(); };
+        document.head.appendChild(el);
+      }
+      next();
+    });
+    return libP;
+  }
+  function css(){
+    if (document.getElementById("utzPdfViewCss")) return;
+    var st = document.createElement("style"); st.id = "utzPdfViewCss";
+    st.textContent = [
+      ".upv{position:fixed;inset:0;z-index:2147483000;background:#1f2326;display:flex;flex-direction:column;color:#fff;font:14px/1.3 'IBM Plex Sans',system-ui,sans-serif;}",
+      ".upv-bar{display:flex;align-items:center;gap:6px;padding:8px 10px;padding-top:max(8px,env(safe-area-inset-top));background:#111416;flex:0 0 auto;}",
+      ".upv-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}",
+      ".upv-btn{font:inherit;font-size:14px;min-height:40px;padding:6px 12px;border-radius:8px;border:1px solid #4a5258;background:#2b3135;color:#fff;cursor:pointer;}",
+      ".upv-btn.upv-close{background:#c8391c;border-color:#c8391c;font-weight:600;}",
+      ".upv-pages{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 0 40px;touch-action:pan-x pan-y pinch-zoom;}",
+      ".upv-page{margin:0 auto 10px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.4);position:relative;}",
+      ".upv-page canvas,.upv-page img{display:block;width:100%;height:100%;}",
+      ".upv-msg{padding:30px 16px;text-align:center;color:#ccd;}"
+    ].join("\n");
+    document.head.appendChild(st);
+  }
+  function download(blob, name){
+    var url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = name || "document.pdf"; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  }
+  // The device Back button closes this page and goes no further: this listener is added when the module loads, ahead of the
+  // app's own Back handling (registered later), so it can stop the same pop reaching the app.
+  window.addEventListener("popstate", function(e){ if (!current) return; current.pushed = false; close(); e.stopImmediatePropagation(); });
+  var current = null;
+  function close(){
+    if (!current) return;
+    var c = current; current = null;
+    try{ c.observer && c.observer.disconnect(); }catch(e){}
+    try{ c.doc && c.doc.destroy(); }catch(e){}
+    if (c.el.parentNode) c.el.parentNode.removeChild(c.el);
+    if (c.pushed && history.state && history.state.utzPdfView){ try{ history.replaceState(c.prevState, ""); }catch(e){} }
+  }
+  function open(blob, name){
+    css();
+    if (current) close();
+    name = name || (blob && blob.name) || "document.pdf";
+    var el = document.createElement("div"); el.className = "upv"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", name);
+    el.innerHTML = '<div class="upv-bar"><span class="upv-name"></span>' +
+      '<button type="button" class="upv-btn" data-a="out" aria-label="Zoom out">−</button><button type="button" class="upv-btn" data-a="in" aria-label="Zoom in">+</button>' +
+      '<button type="button" class="upv-btn" data-a="share">Share</button><button type="button" class="upv-btn" data-a="save">Save</button>' +
+      '<button type="button" class="upv-btn upv-close" data-a="close">Close</button></div><div class="upv-pages"><div class="upv-msg">Opening…</div></div>';
+    el.querySelector(".upv-name").textContent = name;
+    if (!navigator.share) el.querySelector('[data-a="share"]').style.display = "none"; // Fully Kiosk / an Android WebView has no share sheet
+    document.body.appendChild(el);
+    var pagesEl = el.querySelector(".upv-pages");
+    var c = current = { el: el, doc: null, zoom: 1, observer: null, pushed: false };
+    // the device Back button closes the viewer, not the app
+    c.prevState = history.state; // Close turns our entry back into this one (history.back() would also reach the app's own Back and leave its screen)
+    try{ history.pushState({ utzPdfView: true }, ""); c.pushed = true; }catch(e){}
+    el.addEventListener("click", function(e){
+      var b = e.target.closest && e.target.closest("[data-a]"); if (!b) return;
+      var a = b.getAttribute("data-a");
+      if (a === "close") close();
+      else if (a === "save") download(blob, name);
+      else if (a === "share"){
+        var f = null; try{ f = new File([blob], name, { type: blob.type || "application/pdf" }); }catch(err){}
+        if (f && navigator.share && (!navigator.canShare || navigator.canShare({ files: [f] }))) navigator.share({ files: [f] }).catch(function(){});
+        else download(blob, name);
+      }
+      else if (a === "in" || a === "out"){ c.zoom = Math.max(1, Math.min(4, c.zoom * (a === "in" ? 1.5 : 1 / 1.5))); layout(); }
+    });
+    var pageBoxes = [];
+    function layout(){
+      var w = Math.max(200, (pagesEl.clientWidth - 16) * c.zoom);
+      pageBoxes.forEach(function(p){ p.box.style.width = w + "px"; p.box.style.height = (w * p.ratio) + "px"; if (p.drawnAt && p.drawnAt < w * 0.9){ p.drawnAt = 0; if (p.visible) draw(p); } });
+    }
+    function draw(p){
+      if (!c.doc || p.busy) return;
+      var w = p.box.clientWidth; if (!w) return;
+      p.busy = true;
+      c.doc.getPage(p.n).then(function(page){
+        var vp1 = page.getViewport({ scale: 1 });
+        var px = Math.min(2400, w * Math.min(2, window.devicePixelRatio || 1));
+        var vp = page.getViewport({ scale: px / vp1.width });
+        var cv = document.createElement("canvas"); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+        return page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise.then(function(){
+          if (current !== c) return;
+          p.box.innerHTML = ""; p.box.appendChild(cv); p.drawnAt = w; p.canvas = cv;
+        });
+      }).catch(function(err){ console.error("PDF page failed:", err); }).then(function(){ p.busy = false; });
+    }
+    function forget(p){ if (p.canvas){ p.canvas.width = p.canvas.height = 0; p.canvas = null; p.box.innerHTML = ""; p.drawnAt = 0; } }
+    var isPdf = /pdf/i.test(blob.type || "") || /\.pdf$/i.test(name);
+    var headP = isPdf ? Promise.resolve(true) : blob.slice(0, 5).arrayBuffer().then(function(b){ return String.fromCharCode.apply(null, new Uint8Array(b)) === "%PDF-"; });
+    headP.then(function(pdf){
+      if (!pdf){
+        // not a PDF (a photo): just show it
+        var url = URL.createObjectURL(blob);
+        pagesEl.innerHTML = ""; var box = document.createElement("div"); box.className = "upv-page"; box.style.width = "calc(100% - 16px)";
+        var img = document.createElement("img"); img.src = url; img.style.height = "auto"; box.appendChild(img); pagesEl.appendChild(box);
+        c.doc = { destroy: function(){ URL.revokeObjectURL(url); } };
+        return;
+      }
+      return Promise.all([loadLib(), blob.arrayBuffer()]).then(function(r){
+        return r[0].getDocument({ data: new Uint8Array(r[1]) }).promise;
+      }).then(function(doc){
+        if (current !== c){ doc.destroy(); return; }
+        c.doc = doc;
+        pagesEl.innerHTML = "";
+        var chain = Promise.resolve();
+        for (var n = 1; n <= doc.numPages; n++) (function(n){
+          var box = document.createElement("div"); box.className = "upv-page"; pagesEl.appendChild(box);
+          var p = { n: n, box: box, ratio: 1.414, visible: false };
+          pageBoxes.push(p);
+          // each page's own shape (portrait / landscape A3), read before it is drawn
+          chain = chain.then(function(){ return doc.getPage(n).then(function(pg){ var v = pg.getViewport({ scale: 1 }); p.ratio = v.height / v.width; }); });
+        })(n);
+        return chain.then(function(){
+          layout();
+          c.observer = new IntersectionObserver(function(entries){
+            entries.forEach(function(en){
+              var p = pageBoxes.filter(function(x){ return x.box === en.target; })[0]; if (!p) return;
+              p.visible = en.isIntersecting;
+              if (en.isIntersecting && !p.drawnAt) draw(p);
+              else if (!en.isIntersecting) forget(p);
+            });
+          }, { root: pagesEl, rootMargin: "100% 0px" });
+          pageBoxes.forEach(function(p){ c.observer.observe(p.box); });
+        });
+      });
+    }).catch(function(err){
+      console.error("PDF view failed:", err);
+      if (current !== c) return;
+      pagesEl.innerHTML = '<div class="upv-msg">This PDF couldn\'t be shown here. Use Save, then open it from Downloads, or Share it.</div>';
+    });
+    return el;
+  }
+  // window.open(<blob: URL>) on a phone / tablet -> this viewer
+  if (MOBILE){
+    var nativeOpen = window.open;
+    window.open = function(url, target, features){
+      var u = String(url || "");
+      if (/^blob:/i.test(u)){
+        fetch(u).then(function(r){ return r.blob(); }).then(function(b){ open(b, /pdf/i.test(b.type || "") ? "PDF" : "File"); }).catch(function(err){
+          console.error("Couldn't open that file here:", err);
+          try{ nativeOpen.call(window, url, target, features); }catch(e){}
+        });
+        // a stand-in window, so the caller's "popup blocked" fallback (a download) doesn't run as well
+        return { closed: false, close: function(){ close(); }, focus: function(){}, document: { write: function(){}, close: function(){} }, location: { href: u } };
+      }
+      return nativeOpen.apply(window, arguments);
+    };
+  }
+  window.UtzPdfView = { open: open, close: close, mobile: MOBILE };
+})();
+</script>
+<!-- UTZLINE-PDF-VIEW END -->
 <!-- UTZLINE-BUILDERS BEGIN (generated from shared/builders -- don't edit here) -->
 <script>
 /* ============================== UTZLINE builders + their logos (2026-09-30) ==============================
@@ -898,22 +1108,22 @@
 <!-- UTZLINE-DROP END -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>UTZLINE Sub Orders</title>
-<meta name="theme-color" content="#12160d" data-theme-light="#f4f7ee">
+<meta name="theme-color" content="#15110e" data-theme-light="#f8f3ee">
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" href="./icons/icon-192.png">
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <style>
   :root{
-    --bg: #12160d;
-    --panel: #1b2113;
-    --panel2: #232b19;
-    --border: #34402a;
-    --text: #f2f6ea;
-    --muted: #b6c2a3;
-    --muted2: #7f8c6e;
-    --accent: #9ccc3a;
-    --accent-ink: #14200a;
-    --accent-soft: #243208;
+    --bg: #15110e;
+    --panel: #1e1814;
+    --panel2: #26201a;
+    --border: #403529;
+    --text: #f6f0ea;
+    --muted: #bfb3a5;
+    --muted2: #8b7e70;
+    --accent: #d9803f;
+    --accent-ink: #1f1006;
+    --accent-soft: #3a2412;
     --danger: #ff5d5d;
     --warn: #e0a12c;
     --ok: #33c46a;
@@ -945,7 +1155,9 @@
   }
   header img{ width: 32px; height: 32px; border-radius: 8px; }
   header .brand{ font-weight: 700; font-size: 17px; letter-spacing: 0.2px; flex: 1 1 auto; }
-  header .brand small{ display:block; font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: 0.5px; }
+.rc-tag{ display:inline-block; margin-left:7px; padding:0 4px; border:1px solid currentColor; border-radius:4px; font-size:9px; line-height:13px; font-weight:600; letter-spacing:.05em; opacity:.55; vertical-align:middle; position:relative; top:-1px; white-space:nowrap; text-transform:none; font-style:normal; }
+  header .brand b{ color: var(--accent); font-weight: inherit; } /* UTZ + coloured LINE, like the other apps */
+  header .brand small{ display:block; font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace; font-weight: 400; font-size: 10.5px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
   main{
     flex: 1 1 auto;
     overflow-y: auto;
@@ -1113,6 +1325,7 @@
   .field{ margin-bottom: 14px; }
   .field label{ display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 600; }
   .field .req{ color: var(--danger); }
+  #attachSupplierSel[hidden], #attachSupplier[hidden]{ display: none !important; } /* (2026-10-04) supplier dropdown / new-name box */
   .modal-box input[type="text"], .modal-box input[type="date"], .modal-box select, .modal-box textarea{
     display: block; width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
     padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border);
@@ -1179,6 +1392,15 @@
   }
   // The file name an item would get if nothing else in the project had it.
   function baseOf(code, room){ return clean(code) || clean(room, 30) || "Item"; }
+  function pad3(n){ n = String(parseInt(n, 10) || 0); while (n.length < 3) n = "0" + n; return n; }
+  // (2026-10-04) "<number> <code>" -- the number first, so a folder of items sorts in the order they were numbered
+  // (2026-10-04) Andrew: "i want the filename to be "JG.33.1 - 001 - " etc" -- the code, then the item's number
+  function numberedBase(it){
+    var no = parseInt(it && it.itemNo, 10) > 0 ? pad3(it.itemNo) : "", base = baseOf(it.joineryId, it.room);
+    if (!no) return base;
+    var tail = " - " + no;
+    return base.slice(0, MAX - tail.length).replace(/[ ._-]+$/, "") + tail;
+  }
   function low(s){ return String(s == null ? "" : s).trim().toLowerCase(); }
   function tripleKey(level, room, code){ return low(level) + "\u0000" + low(room) + "\u0000" + low(code); }
   // A file name that can go on disk as given (what assign() would have made).
@@ -1199,11 +1421,29 @@
       var k = it.fileKey.toLowerCase(), t = tripleKey(it.level, it.room, it.joineryId);
       if (used[k] && used[k] !== t) it.fileKey = ""; else { used[k] = t; if (!byTriple[t]) byTriple[t] = it.fileKey; }
     });
+    // (2026-10-04) Andrew: "all joinery items have an individual 3 digit number, goes on the both" (file names and PDFs). Every
+    // item gets the project's next number once ("001", "002", ... -- 4 digits past 999), in the order the items are listed, and
+    // it never changes or gets used again. The number follows the code in the item's file name: "JG.33.1 - 001". An item without a number
+    // (made before this) gets one now, and its file name is made again with the number (a fresh install: nothing old to keep).
+    var maxNo = 0, noOfTriple = {};
+    items.forEach(function(it){
+      if (!it || typeof it !== "object") return;
+      var v = parseInt(it.itemNo, 10);
+      if (v > 0){ var t = tripleKey(it.level, it.room, it.joineryId); if (noOfTriple[t] && noOfTriple[t] !== v){ it.itemNo = ""; return; } noOfTriple[t] = v; if (v > maxNo) maxNo = v; }
+    });
+    items.forEach(function(it){
+      if (!it || typeof it !== "object") return;
+      var t = tripleKey(it.level, it.room, it.joineryId);
+      if (parseInt(it.itemNo, 10) > 0) return;
+      if (noOfTriple[t]){ it.itemNo = pad3(noOfTriple[t]); return; } // the same item listed twice: one number
+      maxNo++; it.itemNo = pad3(maxNo); noOfTriple[t] = maxNo;
+      if (it.fileKey && it.fileKey.indexOf(" - " + it.itemNo) === -1){ used[String(it.fileKey).toLowerCase()] = ""; it.fileKey = ""; byTriple[t] = ""; }
+    });
     items.forEach(function(it){
       if (!it || typeof it !== "object" || valid(it.fileKey)) return;
       var t = tripleKey(it.level, it.room, it.joineryId);
       if (byTriple[t]){ it.fileKey = byTriple[t]; n++; return; }
-      var b = baseOf(it.joineryId, it.room), k = b, i = 2;
+      var b = numberedBase(it), k = b, i = 2;
       while (used[k.toLowerCase()]){ k = b + " (" + i + ")"; i++; }
       it.fileKey = k; used[k.toLowerCase()] = t; byTriple[t] = k; n++;
     });
@@ -1212,22 +1452,28 @@
 
   // Each project's items, as read by the app: project (its folder name) ->
   // { triple -> fileKey }. The project read last is the "current" one.
-  var maps = {}, current = null, rev = {};
+  var maps = {}, current = null, rev = {}, nos = {}, abbrs = {};
   function register(project, items){
-    var m = {};
+    var m = {}, nm = {};
     (Array.isArray(items) ? items : []).forEach(function(it){
       if (!it || typeof it !== "object") return;
       var t = tripleKey(it.level, it.room, it.joineryId);
-      if (!(t in m)) m[t] = valid(it.fileKey) ? it.fileKey : baseOf(it.joineryId, it.room); // the first of a duplicated record decides
+      if (!(t in m)) m[t] = valid(it.fileKey) ? it.fileKey : numberedBase(it); // the first of a duplicated record decides
+      if (!(t in nm) && parseInt(it.itemNo, 10) > 0) nm[t] = pad3(it.itemNo);
     });
     project = String(project || "");
-    maps[project] = m; current = project;
+    var ab = {};
+    (Array.isArray(items) ? items : []).forEach(function(it){
+      if (it && typeof it === "object" && it.levelAbbr && it.level != null && !ab[low(it.level)]){ var a = clean(it.levelAbbr, 5); if (a) ab[low(it.level)] = a; }
+    });
+    abbrs[project] = ab;
+    maps[project] = m; current = project; nos[project] = nm;
     // (2026-10-02) and the other way round: file name -> where the item is (its level and room), for the
     // PDFs\IFC / PDFs\SD folders (docsDir below). The first record of a file name decides, like the map above.
     var r = {};
     (Array.isArray(items) ? items : []).forEach(function(it){
       if (!it || typeof it !== "object") return;
-      var k = valid(it.fileKey) ? it.fileKey : baseOf(it.joineryId, it.room), lk = low(k);
+      var k = valid(it.fileKey) ? it.fileKey : numberedBase(it), lk = low(k);
       if (!(lk in r)) r[lk] = { level: it.level == null ? "" : String(it.level), room: it.room == null ? "" : String(it.room) };
     });
     rev[project] = r;
@@ -1284,8 +1530,10 @@
       var hs = h.toString(36).slice(0, 4);
       if (cut) k = k + " ~" + hs;
     }
+    rmLoc[low(k)] = { level: level == null ? "" : String(level), room: room == null ? "" : String(room) }; // (2026-10-04) where its folder goes
     return k;
   }
+  var rmLoc = {};
 
 
   /* ============================== job notes and shop drawings in PDFs\IFC and PDFs\SD (2026-10-02) ==============================
@@ -1294,19 +1542,21 @@
          PDFs\SD\<Level>\<Room>\<item file name>\<drawing>\REV n - <stamp> - <code>.pdf   (+ Returned\, Approved\)
      (level cut to 30 like the event folders, room = the room NUMBER, "No level" / "No room" when unknown). The older
          Project Saves\Job Notes\<item file name>\   and   Project Saves\Shop Drawings\<item file name>\
-     are no longer read (DOC_READ_OLD; Andrew is happy to lose them) and nothing is moved or deleted. docsDir() hands back
-     a stand-in folder (it can list a second, older folder together with the new one, which DOC_READ_OLD switches on).
+     are not read (2026-10-04, Andrew: "I DONT WANT BACKWRDS COMPATIBILITY"). docsDir() hands back a stand-in folder.
      An item moved to another room afterwards keeps its files in the old room's folder: they are not listed with the
      item (logged in the notes). */
-  var DOC_OLD = { JN: "Job Notes", SD: "Shop Drawings" };
   // (v98+) the folder under PDFs\ for each kind: job notes are "IFC" (Issued For Construction -- Andrew 2026-10-02: "change JN to IFC"); the code
   // (and every call site) still says "JN" -- only the folder and the file-name tag read IFC.
   var DOC_NEW = { JN: "IFC", SD: "SD" };
-  // (2026-10-02, Andrew: "im happy to lose old files, as long as new ones work") the older Project Saves folders
-  // are NOT read any more; set true to list them together with the new ones again.
-  var DOC_READ_OLD = false;
   var NO_WHERE = { level: "", room: "" }; // an item the app can't place: PDFs\IFC\No level\No room\<item>
-  function levelSeg(level){
+  // (2026-10-04) Andrew: "use the level Abbreviation in projects (when you import)" -- Projects keeps each level's abbreviation on its
+  // items ("levelAbbr" in joinery-items.json); register() collects them, and every level folder is that abbreviation when the level has one.
+  function abbrOf(level, project){
+    var p = project != null ? String(project) : current, a = p != null ? abbrs[p] : null;
+    return (a && a[low(level)]) || "";
+  }
+  function levelSeg(level, project){
+    var ab = abbrOf(level, project); if (ab) return ab;
     if (window.UtzEvents && UtzEvents.levelFolder) return UtzEvents.levelFolder(level);
     return clean(level, 30) || "No level";
   }
@@ -1328,15 +1578,103 @@
     if (n === 0 && window.UtzEvents && UtzEvents.where){ var w = UtzEvents.where(key); if (w) return w; }
     return null;
   }
-  function newDocSegs(branch, key, loc){
+  function newDocSegs(branch, key, loc, project){
     loc = loc || NO_WHERE;
-    return ["PDFs", DOC_NEW[branch] || branch, levelSeg(loc.level), roomSeg(loc.room), String(key)];
+    return ["PDFs", DOC_NEW[branch] || branch, levelSeg(loc.level, project), roomSeg(loc.room), String(key)];
   }
-  function oldDocSegs(branch, key){ return ["Project Saves", DOC_OLD[branch], String(key)]; }
   // the folders (from the project folder) a new file for this item is written under -- for the path-length check
   function docPathSegs(project, branch, key, sub, loc){
-    return newDocSegs(branch, key, loc || where(key, project)).concat(sub || []);
+    return newDocSegs(branch, key, loc || where(key, project), project).concat(sub || []);
   }
+
+
+  // (2026-10-04) an item's 3-digit number ("" when the items read don't have one) and the label for PDFs / screens: "JG.33.1 - 001" (the same as the file name)
+  function itemNo(level, room, code, project){
+    var t = tripleKey(level, room, code), p = project != null ? String(project) : current;
+    if (p != null && nos[p] && nos[p][t]) return nos[p][t];
+    var hit = ""; Object.keys(nos).forEach(function(q){ if (!hit && nos[q][t]) hit = nos[q][t]; });
+    return hit;
+  }
+  function label(level, room, code, project){ var n = itemNo(level, room, code, project); return (code || "") + (n ? " - " + n : ""); }
+
+  /* (2026-10-04) Andrew: "everything needs to be separated by room / joinery item across all saves even if there is only one joinery
+     item in a room". Every kind of save keeps the layout PDFs\ already has:   <kind folders>\<Level>\<Room>\<item file name>\...
+     (level cut to 30, room NUMBER, "No level" / "No room" when unknown -- the same names as above). itemSegs gives the folders,
+     itemDir opens / makes them, roomDir the room's own folder (a room's site measure), listItemDirs every item folder of a kind
+     (for the registers: one listing per level and per room, done a few at a time). */
+  function itemSegs(rootSegs, key, project, loc){
+    loc = loc || where(key, project) || NO_WHERE;
+    return rootSegs.concat([levelSeg(loc.level, project), roomSeg(loc.room), String(key)]);
+  }
+  function roomSegs(rootSegs, level, room, project){ return rootSegs.concat([levelSeg(level, project), roomSeg(room)]); }
+  function itemDir(ph, rootSegs, key, create, loc){
+    var segs = itemSegs(rootSegs, key, ph && ph.name, loc);
+    return create ? walkDirs(ph, segs, true) : tryWalk(ph, segs);
+  }
+  function roomDir(ph, rootSegs, level, room, create){
+    var segs = roomSegs(rootSegs, level, room, ph && ph.name);
+    return create ? walkDirs(ph, segs, true) : tryWalk(ph, segs);
+  }
+  // every item folder under <rootSegs>: [{ key, levelDir, roomDir, dir, segs }]
+  function listItemDirs(ph, rootSegs){
+    return tryWalk(ph, rootSegs).then(function(base){
+      if (!base) return [];
+      var out = [];
+      return subdirs(base).then(function(levels){
+        return mapPool(levels, 3, function(lv){
+          return subdirs(lv).then(function(rooms){
+            return mapPool(rooms, 3, function(rm){
+              return subdirs(rm).then(function(items){ items.forEach(function(d){ out.push({ key: d.name, levelDir: lv.name, roomDir: rm.name, dir: d, segs: rootSegs.concat([lv.name, rm.name, d.name]) }); }); return 1; });
+            });
+          });
+        });
+      }).then(function(){ return out; });
+    });
+  }
+
+  // (2026-10-04) the ITP apps' saves, for every app that shows them (app = "Install ITP" | "Manufacture ITP" | "Delivery ITP"):
+  //   a room's checklists  Project Saves\UTZLINE ITP\<app>\<Level>\<Room>\<item>.json
+  //   an item's changes    Project Saves\UTZLINE ITP\<app> Log\<Level>\<Room>\<item>\
+  //   an item's PDFs       PDFs\ITPs\<Install|Manufacture|Delivery>\<Level>\<Room>\<item>\
+  // Each resolves null when it isn't there (never creates anything).
+  function itpChecklist(ph, app, level, room, key){
+    return roomDir(ph, ["Project Saves", "UTZLINE ITP", app], level, room, false).then(function(d){ return d ? tryGet(d, "getFileHandle", String(key) + ".json") : null; });
+  }
+  function itpLogDir(ph, app, key, loc){ return itemDir(ph, ["Project Saves", "UTZLINE ITP", app + " Log"], key, false, loc); }
+  function itpPdfDir(ph, app, key, loc){ return itemDir(ph, ["PDFs", "ITPs", String(app).replace(/ ITP$/, "")], key, false, loc); }
+
+  // (2026-10-04) Site measures:  Project Saves\Site Measures\<Level>\<Room>\<page>\   (+ <page>.json beside it), a page being the
+  // room's own site measure ("Room - <level> - <room>", roomMeasureKey) or one item's own page (its file name). smParent: the room
+  // folder that holds the page's folder and file; listSiteMeasureKeys: every page folder there is.
+  function smParentSegs(key, project){
+    var loc = rmLoc[low(key)] || where(key, project) || NO_WHERE;
+    return ["Project Saves", "Site Measures", levelSeg(loc.level, project), roomSeg(loc.room)];
+  }
+  function smParent(ph, key, create){ var segs = smParentSegs(key, ph && ph.name); return create ? walkDirs(ph, segs, true) : tryWalk(ph, segs); }
+  function smDir(ph, key, create){ return smParent(ph, key, create).then(function(d){ return d ? (create ? d.getDirectoryHandle(String(key), { create: true }) : tryGet(d, "getDirectoryHandle", String(key))) : null; }); }
+  // an item's site measure: its own page if it has one, else its room's (the room's site measure covers every item in it)
+  function smDirForItem(ph, key){
+    return smDir(ph, key, false).then(function(d){
+      if (d) return d;
+      var loc = where(key, ph && ph.name);
+      return loc ? smDir(ph, roomMeasureKey(loc.level, loc.room), false) : null;
+    });
+  }
+  function listSiteMeasureKeys(ph){
+    return tryWalk(ph, ["Project Saves", "Site Measures"]).then(function(base){
+      if (!base) return [];
+      var out = [];
+      return subdirs(base).then(function(levels){
+        return mapPool(levels, 3, function(lv){ return subdirs(lv).then(function(rooms){ return mapPool(rooms, 3, function(rm){ return subdirs(rm).then(function(ks){ ks.forEach(function(d){ out.push(d.name); }); return 1; }); }); }); });
+      }).then(function(){ return out; });
+    });
+  }
+
+  // (2026-10-04) Sub orders: one folder per item --  Project Saves\UTZLINE Sub Orders\Orders\<Level>\<Room>\<item>\
+  // holding <item>.json (the item's orders) and the order files attached to it (an order not on an item yet waits in Inbox\ + Files\).
+  var ORDERS_ROOT = ["Project Saves", "UTZLINE Sub Orders", "Orders"];
+  function ordersDir(ph, key, create, loc){ return itemDir(ph, ORDERS_ROOT, key, !!create, loc); }
+  function listOrdersDirs(ph){ return listItemDirs(ph, ORDERS_ROOT); }
 
   function nfErr(name){
     var e;
@@ -1462,10 +1800,10 @@
   // that is in neither place is a NotFoundError, as on a real handle. loc: { level, room } when the caller knows
   // them (else looked up by file name).
   function docsDir(ph, branch, key, create, sub, loc){
-    var oldSegs = oldDocSegs(branch, key), mainSegs = newDocSegs(branch, key, loc || where(key, ph && ph.name));
-    return Promise.all([tryWalk(ph, mainSegs), DOC_READ_OLD ? tryWalk(ph, oldSegs) : Promise.resolve(null)]).then(function(r){
-      if (!r[0] && !r[1] && !create) throw nfErr(key);
-      var p = Promise.resolve(new Ov(ph, mainSegs, r[0], r[1]));
+    var mainSegs = newDocSegs(branch, key, loc || where(key, ph && ph.name), ph && ph.name);
+    return tryWalk(ph, mainSegs).then(function(h){
+      if (!h && !create) throw nfErr(key);
+      var p = Promise.resolve(new Ov(ph, mainSegs, h, null));
       (sub || []).forEach(function(sg){ p = p.then(function(o){ return o.getDirectoryHandle(sg, { create: !!create }); }); });
       return p;
     });
@@ -1486,10 +1824,7 @@
   function subdirs(h){ return listHandles(h).then(function(l){ return l.filter(function(e){ return e.kind === "directory"; }); }); }
   function docsKeys(ph, branch){
     var found = {}, order = [];
-    function slot(k){ var lk = low(k); if (!found[lk]){ found[lk] = { key: k, mains: [], alt: null }; order.push(lk); } return found[lk]; }
-    var oldP = (DOC_READ_OLD ? tryWalk(ph, ["Project Saves", DOC_OLD[branch]]) : Promise.resolve(null)).then(function(b){ return b ? subdirs(b) : []; }).then(function(ds){
-      ds.forEach(function(d){ slot(d.name).alt = d; });
-    });
+    function slot(k){ var lk = low(k); if (!found[lk]){ found[lk] = { key: k, mains: [] }; order.push(lk); } return found[lk]; }
     var newP = tryWalk(ph, ["PDFs", DOC_NEW[branch] || branch]).then(function(b){ return b ? subdirs(b) : []; }).then(function(levels){
       return mapPool(levels, 3, function(lv){
         return subdirs(lv).then(function(rooms){
@@ -1502,15 +1837,15 @@
         });
       });
     });
-    return Promise.all([oldP, newP]).then(function(){
+    return newP.then(function(){
       return order.map(function(lk){
         var f = found[lk], m = f.mains[0] || null;
         if (f.mains.length > 1){ // the same name in two rooms: the one it is in now
-          var w = where(f.key, ph && ph.name), want = w ? newDocSegs(branch, f.key, w) : null;
+          var w = where(f.key, ph && ph.name), want = w ? newDocSegs(branch, f.key, w, ph && ph.name) : null;
           if (want) f.mains.forEach(function(x){ if (x.segs.join("\u0000") === want.join("\u0000")) m = x; });
         }
-        if (m) return new Ov(ph, m.segs, m.h, f.alt);
-        return new Ov(ph, newDocSegs(branch, f.key, where(f.key, ph && ph.name)), null, f.alt);
+        if (m) return new Ov(ph, m.segs, m.h, null);
+        return new Ov(ph, newDocSegs(branch, f.key, where(f.key, ph && ph.name), ph && ph.name), null, null);
       });
     });
   }
@@ -1522,6 +1857,7 @@
     initials: initials, stamp: stamp, tripleKey: tripleKey, roomMeasureKey: roomMeasureKey,
     levelSeg: levelSeg, roomShort: roomShort, roomSeg: roomSeg, where: where, docPathSegs: docPathSegs,
     docsDir: docsDir, docsKeys: docsKeys, docsForget: docsForget, isNotFound: isNF,
+    itemNo: itemNo, label: label, pad3: pad3, itemSegs: itemSegs, roomSegs: roomSegs, itemDir: itemDir, roomDir: roomDir, listItemDirs: listItemDirs, itpChecklist: itpChecklist, itpLogDir: itpLogDir, itpPdfDir: itpPdfDir, smParent: smParent, smDir: smDir, smDirForItem: smDirForItem, smParentSegs: smParentSegs, listSiteMeasureKeys: listSiteMeasureKeys, ordersDir: ordersDir, listOrdersDirs: listOrdersDirs, ORDERS_ROOT: ORDERS_ROOT, walk: walkDirs, tryWalk: tryWalk,
     _maps: function(){ return maps; }
   };
 })();
@@ -1532,7 +1868,7 @@
 
 <header>
   <img src="./icons/icon-192.png" alt="">
-  <div class="brand">UTZLINE Sub Orders<small>Drag orders in, drag them onto a joinery item</small></div>
+  <div class="brand">UTZ<b>LINE</b> Sub Orders<span class="rc-tag" title="Release candidate 1.0">RC 1.0</span><small>Drag orders in, drag them onto a joinery item</small></div>
   <button class="btn secondary sm" id="headerRefreshBtn" type="button" hidden>&#8635; Refresh</button>
 </header>
 
@@ -1611,11 +1947,51 @@
       <p class="empty-note" id="inboxEmpty" hidden>Nothing waiting — drop an order file above.</p>
     </div>
 
+    <!-- (2026-10-04) Andrew: "within the project add separate pages for each supplier" -->
+    <div class="card">
+      <h2 class="section-title">Suppliers</h2>
+      <p class="sub" style="margin:0 0 12px;">Each supplier's orders on this project: outstanding, print, mark received.</p>
+      <div class="list" id="suppliersList"></div>
+      <p class="empty-note" id="suppliersEmpty" hidden>No orders attached to items yet.</p>
+    </div>
+
     <div class="card">
       <h2 class="section-title">Levels</h2>
       <p class="sub" style="margin:0 0 12px;">Choose a level to browse its rooms.</p>
       <div class="list" id="levelsList"></div>
       <p class="empty-note" id="levelsEmpty" hidden>No joinery items in this project yet.</p>
+    </div>
+  </div>
+
+  <!-- ---- (2026-10-04) one supplier's orders on this project ---- -->
+  <div class="screen wide" id="screen-supplier" hidden>
+    <div class="row backrow">
+      <button class="btn secondary sm" id="backFromSupplierBtn" type="button">&larr; Project</button>
+    </div>
+    <h1 id="supplierTitle">Supplier</h1>
+    <p class="sub" id="supplierSub"></p>
+    <div class="card">
+      <div class="sup-tools">
+        <select id="supShow" aria-label="Show"><option value="out">Outstanding</option><option value="all">All orders</option><option value="rec">Received</option></select>
+        <input type="text" id="supSearch" placeholder="Search item, room, PO #, notes…">
+        <button class="btn secondary sm" type="button" id="supSelectOut">Select all outstanding</button>
+        <button class="btn secondary sm" type="button" id="supSelectNone">Clear</button>
+      </div>
+      <div class="sup-tools sup-actions">
+        <span id="supSelCount" class="sup-selcount">0 selected</span>
+        <label class="sup-date">Received on <input type="date" id="supRecDate"></label>
+        <button class="btn sm" type="button" id="supMarkRec">Mark received</button>
+        <button class="btn secondary sm" type="button" id="supMarkNotRec">Mark not received</button>
+        <button class="btn secondary sm" type="button" id="supPrintOrders">Print selected orders</button>
+        <button class="btn secondary sm" type="button" id="supPrintTable">Print table</button>
+        <button class="btn secondary sm" type="button" id="supCsv">Export CSV</button>
+      </div>
+      <div class="sup-scroll"><table class="sup-table" id="supTable"><thead><tr>
+        <th class="sup-cb"><input type="checkbox" id="supAll" aria-label="Select all shown"></th>
+        <th data-k="joineryId">Item</th><th data-k="description">Description</th><th data-k="level">Level</th><th data-k="room">Room</th>
+        <th data-k="type">Type</th><th data-k="poNumber">PO #</th><th data-k="requiredByDate">Required by</th><th data-k="received">Received</th><th data-k="notes">Notes</th><th></th>
+      </tr></thead><tbody id="supBody"></tbody></table></div>
+      <p class="empty-note" id="supEmpty" hidden>No orders to show.</p>
     </div>
   </div>
 
@@ -1671,8 +2047,12 @@
       <input type="date" id="attachDate">
     </div>
     <div class="field">
-      <label for="attachSupplier">Supplier / subcontractor</label>
-      <input type="text" id="attachSupplier" placeholder="e.g. Acme Steel" list="supplierList" autocomplete="off">
+      <label for="attachSupplierSel">Supplier / subcontractor</label>
+      <!-- (2026-10-04) Andrew: "Once a supplier name has been entered, it turns into a drop down with option to add another. This drop
+           down transfers across all users (a proper dropdown like the one below" -- the Type one. The list is the shared
+           Projects/Sub Orders Suppliers.json; the text box shows only for the first supplier or "+ Add new supplier…". -->
+      <select id="attachSupplierSel"></select>
+      <input type="text" id="attachSupplier" placeholder="New supplier name, e.g. Acme Steel" autocomplete="off" style="margin-top:6px;">
       <datalist id="supplierList"></datalist>
     </div>
     <div class="field">
@@ -2017,7 +2397,6 @@
   }
   function tryInboxDir(projectHandle){ return tryChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Inbox"]); }
   function tryFilesDir(projectHandle){ return tryChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Files"]); }
-  function tryOrdersDir(projectHandle){ return tryChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Orders"]); }
 
   function listInboxOrders(projectHandle){
     return tryInboxDir(projectHandle).then(function(dirH){
@@ -2033,10 +2412,32 @@
   // this app already uses for its other read-modify-writes: missing file
   // = [] (genuinely no orders yet), anything else = retry once, then
   // reject with the "couldn't read (still syncing?)" error -- no write.
+  /* (2026-10-04) Andrew: "everything needs to be separated by room / joinery item across all saves". Each item has its own folder:
+       Project Saves\UTZLINE Sub Orders\Orders\<Level>\<Room>\<item>\<item>.json   its orders
+       ...\<item>\Order - <stamp> - <item>.pdf                                       the files attached to it
+     An order not on an item yet waits in Inbox\ (its record) + Files\ (its file). Attaching moves the file into the item's
+     folder; unattaching moves it back to Files\. (UtzItemFiles.ordersDir) */
+  function itemOrdersDir(projectHandle, level, room, joineryId, create){
+    return UtzItemFiles.ordersDir(projectHandle, orderFileNameFor(level, room, joineryId).replace(/\.json$/i, ""), !!create, { level: level, room: room });
+  }
   function readAttachedOrders(projectHandle, level, room, joineryId){
-    return tryOrdersDir(projectHandle).then(function(dirH){
+    return itemOrdersDir(projectHandle, level, room, joineryId, false).then(function(dirH){
       if (!dirH) return [];
       return readJsonArrayFileStrict(dirH, orderFileNameFor(level, room, joineryId), "attached orders");
+    });
+  }
+  // the file of an order: in its item's folder once attached, in Files\ while it waits in the inbox
+  function orderFileHandle(projectHandle, o, attached){
+    var dirP = attached ? itemOrdersDir(projectHandle, o.level, o.room, o.joineryId, false) : tryFilesDir(projectHandle);
+    return dirP.then(function(dirH){ if (!dirH) throw new Error("no folder"); return dirH.getFileHandle(o.storedName, { create: false }); });
+  }
+  // moves one stored file between two folders: copied, size-checked, then the original removed (never lost)
+  function moveStoredFile(fromDir, toDir, name){
+    return fromDir.getFileHandle(name, { create: false }).then(function(fh){ return fh.getFile(); }).then(function(f){ return f.arrayBuffer(); }).then(function(buf){
+      return toDir.getFileHandle(name, { create: true }).then(function(nh){ return nh.createWritable().then(function(w){ return w.write(buf).then(function(){ return w.close(); }); }).then(function(){ return nh.getFile(); }); }).then(function(copy){
+        if (copy.size !== buf.byteLength) throw new Error("the moved copy of " + name + " didn't match -- nothing was moved");
+        return fromDir.removeEntry(name);
+      });
     });
   }
   // Reads every file in Orders/ ONCE and keys the result by the item
@@ -2046,11 +2447,9 @@
   // Cost is proportional to how many ITEMS have at least one order, not
   // to how many items exist in the project.
   function listAllAttachedOrders(projectHandle){
-    return tryOrdersDir(projectHandle).then(function(dirH){
-      if (!dirH) return {};
-      return listJsonFileHandlesIn(dirH).then(function(handles){
-        return Promise.all(handles.map(readJsonFile));
-      }).then(function(arrays){
+    return UtzItemFiles.listOrdersDirs(projectHandle).then(function(items){ // (2026-10-04) every item's folder
+      if (!items.length) return {};
+      return Promise.all(items.map(function(x){ return x.dir.getFileHandle(x.key + ".json", { create: false }).then(readJsonFile, function(){ return null; }); })).then(function(arrays){
         var map = {};
         (arrays || []).forEach(function(arr){
           if (!Array.isArray(arr) || !arr.length) return;
@@ -2119,7 +2518,6 @@
   }
   function ensureInboxDir(projectHandle){ return ensureChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Inbox"]); }
   function ensureFilesDir(projectHandle){ return ensureChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Files"]); }
-  function ensureOrdersDir(projectHandle){ return ensureChain(projectHandle, ["Project Saves", "UTZLINE Sub Orders", "Orders"]); }
 
   function writeJsonFile(dirHandle, fileName, data){
     return dirHandle.getFileHandle(fileName, { create: true }).then(function(fh){
@@ -2186,6 +2584,7 @@
       opt.value = name;
       supplierList.appendChild(opt);
     });
+    populateSupplierSelect();
   }
   // Adds a brand-new type, rejecting (resolving {duplicate:true, ...}
   // instead of writing) anything whose slug already matches an existing
@@ -2241,7 +2640,7 @@
     });
   }
   function writeAttachedOrders(projectHandle, level, room, joineryId, ordersArray){
-    return ensureOrdersDir(projectHandle).then(function(dirH){ return writeJsonFile(dirH, orderFileNameFor(level, room, joineryId), ordersArray); });
+    return itemOrdersDir(projectHandle, level, room, joineryId, true).then(function(dirH){ return writeJsonFile(dirH, orderFileNameFor(level, room, joineryId), ordersArray); });
   }
   function writeOrderFileBytes(projectHandle, storedFileName, data){
     return ensureFilesDir(projectHandle).then(function(dirH){ return dirH.getFileHandle(storedFileName, { create: true }); }).then(function(fh){
@@ -2320,7 +2719,13 @@
       level: item.level, room: item.room, joineryId: item.joineryId,
       attachedAt: new Date().toISOString()
     };
-    return readAttachedOrders(projectHandle, item.level, item.room, item.joineryId).then(function(existing){
+    if (order.storedName) order.filePath = UtzItemFiles.itemSegs(UtzItemFiles.ORDERS_ROOT, orderFileNameFor(item.level, item.room, item.joineryId).replace(/\.json$/i, ""), projectHandle.name, { level: item.level, room: item.room }).concat([order.storedName]).join("/");
+    var existingP = readAttachedOrders(projectHandle, item.level, item.room, item.joineryId); // read first: an unreadable file stops here
+    return existingP.then(function(){
+      // (2026-10-04) the file goes into the item's own folder first -- if it can't be moved, nothing is attached
+      if (!order.storedName) return;
+      return Promise.all([tryFilesDir(projectHandle), itemOrdersDir(projectHandle, item.level, item.room, item.joineryId, true)]).then(function(d){ if (d[0]) return moveStoredFile(d[0], d[1], order.storedName); });
+    }).then(function(){ return existingP; }).then(function(existing){
       existing.push(order);
       return writeAttachedOrders(projectHandle, item.level, item.room, item.joineryId, existing);
     }).then(function(){
@@ -2334,8 +2739,12 @@
       var remaining = existing.filter(function(o){ return o.id !== order.id; });
       return writeAttachedOrders(projectHandle, order.level, order.room, order.joineryId, remaining);
     }).then(function(){
+      // (2026-10-04) its file goes back to Files\ with the inbox record
+      if (!order.storedName) return;
+      return Promise.all([itemOrdersDir(projectHandle, order.level, order.room, order.joineryId, false), ensureFilesDir(projectHandle)]).then(function(d){ if (d[0]) return moveStoredFile(d[0], d[1], order.storedName).catch(function(){}); });
+    }).then(function(){
       var rec = {
-        id: order.id, fileName: order.fileName, filePath: order.filePath,
+        id: order.id, fileName: order.fileName, filePath: order.storedName ? "Project Saves/UTZLINE Sub Orders/Files/" + order.storedName : order.filePath,
         storedName: order.storedName, fileSize: 0, droppedAt: order.attachedAt
       };
       return writeInboxRecord(projectHandle, rec).then(function(){ return rec; });
@@ -2500,8 +2909,8 @@
   /* ============================================================
    * SCREENS
    * ============================================================ */
-  var SCREENS = ["setup", "reconnect", "home", "project", "rooms", "items"];
-  var PROJECT_SCOPED_SCREENS = { project: true, rooms: true, items: true };
+  var SCREENS = ["setup", "reconnect", "home", "project", "rooms", "items", "supplier"];
+  var PROJECT_SCOPED_SCREENS = { project: true, rooms: true, items: true, supplier: true };
   function showScreen(name){
     SCREENS.forEach(function(s){ document.getElementById("screen-" + s).hidden = (s !== name); });
     headerRefreshBtn.hidden = (name === "setup" || name === "reconnect");
@@ -2531,7 +2940,8 @@
       }
       renderInbox();
       var s = currentScreenName();
-      if (s === "project") renderLevels();
+      if (s === "project"){ renderLevels(); renderSuppliers(); }
+      else if (s === "supplier") renderSupplierPage();
       else if (s === "rooms") renderRooms();
       else if (s === "items") renderItems();
     });
@@ -2631,6 +3041,7 @@
       if (window.UtzBuilders) UtzBuilders.mount(projectTitle, state.root, p.contractor || "");
       renderInbox();
       renderLevels();
+      renderSuppliers(); // (2026-10-04)
     }).catch(function(err){
       console.error("Opening project failed:", err);
       projectTitle.textContent = folderName;
@@ -2910,6 +3321,44 @@
   var attachDateInput = document.getElementById("attachDate");
   var attachSupplierInput = document.getElementById("attachSupplier");
   var supplierList = document.getElementById("supplierList");
+  var attachSupplierSel = document.getElementById("attachSupplierSel");
+  var ADD_NEW_SUPPLIER_VALUE = "__add_new_supplier__";
+  // (2026-10-04) the Supplier dropdown: "None", the shared saved names (A-Z), "+ Add new supplier…". With no saved names yet
+  // only the text box shows. Picking "+ Add new supplier…" shows the text box; the name is saved for everyone on Attach.
+  function populateSupplierSelect(){
+    var cur = attachSupplierSel.value;
+    attachSupplierSel.innerHTML = "";
+    function add(v, t){ var o = document.createElement("option"); o.value = v; o.textContent = t; attachSupplierSel.appendChild(o); }
+    add("", "None");
+    state.savedSuppliers.slice().sort(function(a, b){ return String(a).localeCompare(String(b), undefined, { sensitivity: "base" }); })
+      .forEach(function(n){ add(n, n); });
+    add(ADD_NEW_SUPPLIER_VALUE, "+ Add new supplier…");
+    attachSupplierSel.value = cur;
+    if (attachSupplierSel.value !== cur) attachSupplierSel.value = "";
+    syncSupplierInput();
+  }
+  function syncSupplierInput(){
+    var none = !state.savedSuppliers.length;
+    attachSupplierSel.hidden = none;
+    attachSupplierInput.hidden = !(none || attachSupplierSel.value === ADD_NEW_SUPPLIER_VALUE);
+  }
+  function supplierValue(){
+    if (!attachSupplierInput.hidden) return attachSupplierInput.value.trim();
+    return attachSupplierSel.value === ADD_NEW_SUPPLIER_VALUE ? "" : attachSupplierSel.value;
+  }
+  function setSupplierValue(name){
+    name = String(name || "").trim();
+    var hit = state.savedSuppliers.filter(function(n){ return String(n).trim().toLowerCase() === name.toLowerCase(); })[0];
+    if (!name){ attachSupplierSel.value = ""; attachSupplierInput.value = ""; }
+    else if (hit){ attachSupplierSel.value = hit; attachSupplierInput.value = ""; }
+    else { attachSupplierSel.value = ADD_NEW_SUPPLIER_VALUE; attachSupplierInput.value = name; }
+    syncSupplierInput();
+  }
+  attachSupplierSel.addEventListener("change", function(){
+    syncSupplierInput();
+    if (!attachSupplierInput.hidden) setTimeout(function(){ attachSupplierInput.focus(); }, 0);
+  });
+  populateSupplierSelect();
   var attachPoInput = document.getElementById("attachPo");
   var attachNotesInput = document.getElementById("attachNotes");
   var attachCancelBtn = document.getElementById("attachCancelBtn");
@@ -2947,11 +3396,31 @@
     attachTypeSel.value = "";
     attachTypeLastRealValue = "";
     attachDateInput.value = "";
-    attachSupplierInput.value = "";
+    setSupplierValue("");
     attachPoInput.value = "";
+    // (2026-10-04) Andrew: "Order number is always the project #  ie 3749_" -- the box starts with the project number from
+    // project-meta.json (UTZLINE Projects' Project No.); Attach adds it if someone typed over it.
+    projectOrderPrefix().then(function(px){ if (px && !attachPoInput.value && !attachBackdrop.hidden) attachPoInput.value = px; });
     attachNotesInput.value = "";
     updateAttachSubmitEnabled();
     attachBackdrop.hidden = false;
+  }
+  function projectOrderPrefix(){
+    var pr = state.project;
+    if (!pr || !pr.projectHandle) return Promise.resolve("");
+    if (typeof pr.orderPrefix === "string") return Promise.resolve(pr.orderPrefix);
+    return pr.projectHandle.getFileHandle("project-meta.json", { create: false }).then(function(fh){ return fh.getFile(); })
+      .then(function(f){ return f.text(); }).then(function(t){
+        var m = null; try{ m = JSON.parse(t); }catch(e){}
+        var no = m && m.no != null ? String(m.no).trim() : "";
+        return (pr.orderPrefix = no ? no + "_" : "");
+      }, function(){ return (pr.orderPrefix = ""); });
+  }
+  function withOrderPrefix(raw, px){
+    var v = String(raw || "").trim();
+    if (!px || !v || v === px) return v === px ? "" : v;
+    if (v.toLowerCase().indexOf(px.toLowerCase()) === 0) return v;
+    return px + v.replace(/^[_\s-]+/, "");
   }
   function closeAttachModal(){ attachBackdrop.hidden = true; pendingAttach = null; }
   function updateAttachSubmitEnabled(){ attachSubmitBtn.disabled = !(attachTypeSel.value && attachTypeSel.value !== ADD_NEW_TYPE_VALUE && attachDateInput.value); }
@@ -2978,8 +3447,8 @@
       type: attachTypeSel.value,
       typeLabel: typeLabel(attachTypeSel.value),
       requiredByDate: attachDateInput.value,
-      supplier: attachSupplierInput.value.trim(),
-      poNumber: attachPoInput.value.trim(),
+      supplier: supplierValue(),
+      poNumber: withOrderPrefix(attachPoInput.value, state.project && state.project.orderPrefix),
       notes: attachNotesInput.value.trim()
     };
     attachSubmitBtn.disabled = true;
@@ -3136,10 +3605,8 @@
     });
   }
   function openOrderFile(o){
-    tryFilesDir(state.project.projectHandle).then(function(dirH){
-      if (!dirH) throw new Error("no files dir");
-      return dirH.getFileHandle(o.storedName, { create: false });
-    }).then(function(fh){ return fh.getFile(); }).then(function(file){
+    // (2026-10-04) an attached order's file is in its item's folder
+    orderFileHandle(state.project.projectHandle, o, true).then(function(fh){ return fh.getFile(); }).then(function(file){
       var url = URL.createObjectURL(file);
       window.open(url, "_blank");
       setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
@@ -3149,6 +3616,197 @@
     });
   }
   viewOrdersCloseBtn.addEventListener("click", function(){ viewOrdersBackdrop.hidden = true; });
+
+
+  /* ============================================================
+   * (2026-10-04) SUPPLIER PAGES -- Andrew: "within the project add separate pages for each supplier. this will have a table
+   * (similar to schedule) where you can select outstanding orders, print them, print a table of outstanding orders, mark as
+   * received, open the order, and anything else you might feel relevant". Every order attached to this project's items, grouped
+   * by supplier (as typed, ignoring case / spaces). Read from what the project screen already loaded -- no extra folder reads.
+   * ============================================================ */
+  var suppliersList = document.getElementById("suppliersList"), suppliersEmpty = document.getElementById("suppliersEmpty");
+  var supEls = { title: document.getElementById("supplierTitle"), sub: document.getElementById("supplierSub"), show: document.getElementById("supShow"),
+    search: document.getElementById("supSearch"), body: document.getElementById("supBody"), empty: document.getElementById("supEmpty"), all: document.getElementById("supAll"),
+    count: document.getElementById("supSelCount"), recDate: document.getElementById("supRecDate"), table: document.getElementById("supTable") };
+  var sup = { key: "", name: "", sel: {}, sort: { k: "requiredByDate", desc: false }, busy: false };
+  var NO_SUPPLIER = "(No supplier)";
+  function supKeyOf(name){ return String(name || "").trim().toLowerCase().replace(/\s+/g, " ") || "\u0000"; }
+  function allProjectOrders(){
+    var p = state.project; if (!p) return [];
+    var desc = {};
+    (p.items || []).forEach(function(it){ desc[itemKey(it.level, it.room, it.joineryId)] = it.description || ""; });
+    var out = [];
+    Object.keys(p.attachedMap || {}).forEach(function(k){ (p.attachedMap[k] || []).forEach(function(o){ if (o){ o.__desc = desc[itemKey(o.level, o.room, o.joineryId)] || ""; out.push(o); } }); });
+    return out;
+  }
+  function isOverdue(o){ return !o.received && o.requiredByDate && o.requiredByDate < todayISO(); }
+  function supplierGroups(){
+    var g = {};
+    allProjectOrders().forEach(function(o){
+      var k = supKeyOf(o.supplier), x = g[k] || (g[k] = { key: k, name: String(o.supplier || "").trim() || NO_SUPPLIER, orders: [] });
+      x.orders.push(o);
+    });
+    return Object.keys(g).map(function(k){ return g[k]; }).sort(function(a, b){ return a.key === "\u0000" ? 1 : b.key === "\u0000" ? -1 : a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
+  }
+  function renderSuppliers(){
+    if (!suppliersList || !state.project) return;
+    var groups = supplierGroups();
+    suppliersList.innerHTML = "";
+    suppliersEmpty.hidden = groups.length > 0;
+    groups.forEach(function(g){
+      var out = g.orders.filter(function(o){ return !o.received; }).length, od = g.orders.filter(isOverdue).length;
+      var row = document.createElement("button"); row.type = "button"; row.className = "list-item";
+      row.innerHTML = '<div class="sup-row-title"><b></b><span class="sup-counts">' + out + " outstanding" + (od ? ' · <b class="sup-od">' + od + " overdue</b>" : "") + " · " + g.orders.length + " order" + (g.orders.length === 1 ? "" : "s") + "</span></div>";
+      row.querySelector("b").textContent = g.name;
+      row.addEventListener("click", function(){ openSupplier(g.key, g.name); });
+      suppliersList.appendChild(row);
+    });
+  }
+  function openSupplier(key, name){
+    sup.key = key; sup.name = name; sup.sel = {};
+    supEls.show.value = "out"; supEls.search.value = "";
+    if (!supEls.recDate.value) supEls.recDate.value = todayISO();
+    showScreen("supplier");
+    renderSupplierPage();
+  }
+  function supplierOrders(){ return allProjectOrders().filter(function(o){ return supKeyOf(o.supplier) === sup.key; }); }
+  function shownOrders(){
+    var show = supEls.show.value, q = supEls.search.value.trim().toLowerCase();
+    var list = supplierOrders().filter(function(o){
+      if (show === "out" && o.received) return false;
+      if (show === "rec" && !o.received) return false;
+      if (!q) return true;
+      return [o.joineryId, o.__desc, o.level, o.room, o.poNumber, o.notes, o.typeLabel || typeLabel(o.type), o.fileName].join(" ").toLowerCase().indexOf(q) !== -1;
+    });
+    var k = sup.sort.k, dir = sup.sort.desc ? -1 : 1;
+    function val(o){ return k === "description" ? o.__desc : k === "type" ? (o.typeLabel || typeLabel(o.type)) : k === "received" ? (o.received ? "1" + (o.receivedDate || "") : "0") : String(o[k] == null ? "" : o[k]); }
+    list.sort(function(a, b){ var x = val(a), y = val(b); if (k === "requiredByDate"){ if (!x) x = "9999"; if (!y) y = "9999"; } return x.localeCompare(y, undefined, { numeric: true, sensitivity: "base" }) * dir || String(a.joineryId).localeCompare(String(b.joineryId), undefined, { numeric: true }); });
+    return list;
+  }
+  function selectedOrders(){ return supplierOrders().filter(function(o){ return sup.sel[o.id]; }); }
+  function renderSupplierPage(){
+    if (!state.project) return;
+    var all = supplierOrders(), out = all.filter(function(o){ return !o.received; }), od = all.filter(isOverdue);
+    supEls.title.textContent = sup.name;
+    supEls.sub.textContent = ((state.project.no ? state.project.no + " — " : "") + state.project.name) + " · " + out.length + " outstanding" + (od.length ? ", " + od.length + " overdue" : "") + " · " + all.length + " in total";
+    var list = shownOrders();
+    supEls.body.innerHTML = "";
+    supEls.empty.hidden = list.length > 0;
+    list.forEach(function(o){
+      var tr = document.createElement("tr");
+      tr.className = (o.received ? "sup-received" : isOverdue(o) ? "sup-overdue" : "") + (sup.sel[o.id] ? " sup-sel" : "");
+      tr.innerHTML = '<td class="sup-cb"><input type="checkbox"' + (sup.sel[o.id] ? " checked" : "") + ' aria-label="Select"></td>' +
+        "<td><b>" + escapeHtml(o.joineryId) + "</b></td><td>" + escapeHtml(o.__desc) + "</td><td>" + escapeHtml(o.level) + "</td><td>" + escapeHtml(o.room) + "</td>" +
+        "<td>" + escapeHtml(o.typeLabel || typeLabel(o.type)) + "</td><td>" + escapeHtml(o.poNumber || "") + "</td>" +
+        '<td class="sup-req">' + (o.requiredByDate ? escapeHtml(formatDate(o.requiredByDate, true)) + (isOverdue(o) ? " · overdue" : "") : "—") + "</td>" +
+        "<td>" + (o.received ? "✓ " + escapeHtml(formatDate(o.receivedDate, true) || "") : "—") + "</td>" +
+        "<td>" + escapeHtml(o.notes || "") + "</td>" +
+        '<td><button class="btn secondary sm" type="button">Open</button></td>';
+      tr.querySelector("input").addEventListener("change", function(e){ sup.sel[o.id] = e.target.checked; tr.classList.toggle("sup-sel", e.target.checked); syncSel(); });
+      tr.querySelector("button").addEventListener("click", function(){ openOrderFile(o); });
+      supEls.body.appendChild(tr);
+    });
+    Array.prototype.forEach.call(supEls.table.querySelectorAll("thead th[data-k]"), function(th){ th.classList.toggle("sorted", th.getAttribute("data-k") === sup.sort.k); th.classList.toggle("desc", th.getAttribute("data-k") === sup.sort.k && sup.sort.desc); });
+    syncSel();
+  }
+  function syncSel(){
+    var n = selectedOrders().length, shown = shownOrders();
+    supEls.count.textContent = n + " selected";
+    supEls.all.checked = shown.length > 0 && shown.every(function(o){ return sup.sel[o.id]; });
+    ["supMarkRec", "supMarkNotRec", "supPrintOrders"].forEach(function(id){ document.getElementById(id).disabled = !n || sup.busy; });
+  }
+  supEls.show.addEventListener("change", renderSupplierPage);
+  supEls.search.addEventListener("input", renderSupplierPage);
+  supEls.all.addEventListener("change", function(){ var on = supEls.all.checked; shownOrders().forEach(function(o){ sup.sel[o.id] = on; }); renderSupplierPage(); });
+  document.getElementById("supSelectOut").addEventListener("click", function(){ supplierOrders().forEach(function(o){ if (!o.received) sup.sel[o.id] = true; }); renderSupplierPage(); });
+  document.getElementById("supSelectNone").addEventListener("click", function(){ sup.sel = {}; renderSupplierPage(); });
+  Array.prototype.forEach.call(supEls.table.querySelectorAll("thead th[data-k]"), function(th){
+    th.addEventListener("click", function(){ var k = th.getAttribute("data-k"); if (sup.sort.k === k) sup.sort.desc = !sup.sort.desc; else { sup.sort.k = k; sup.sort.desc = false; } renderSupplierPage(); });
+  });
+  document.getElementById("backFromSupplierBtn").addEventListener("click", function(){ renderLevels(); renderSuppliers(); showScreen("project"); });
+  // mark received / not received: one order at a time (each item's own Orders file), stops at the first that can't be written
+  function markSelected(received){
+    var list = selectedOrders().filter(function(o){ return !!o.received !== received; });
+    if (!list.length){ showToast(received ? "Those are already received." : "Those aren't marked received."); return; }
+    var date = supEls.recDate.value || todayISO(), done = 0;
+    sup.busy = true; syncSel();
+    var chain = Promise.resolve();
+    list.forEach(function(o){ chain = chain.then(function(){ return setOrderReceived(state.project.projectHandle, o, received, date).then(function(u){ o.received = u.received; o.receivedDate = u.receivedDate; done++; }); }); });
+    chain.then(function(){
+      showToast(done + " order" + (done === 1 ? "" : "s") + (received ? " marked received (" + formatDate(date, true) + ")." : " marked not received."));
+    }, function(err){
+      console.error("Marking received failed:", err);
+      showToast(writeFailMessage(err, done + " of " + list.length + " updated — the rest couldn't be saved. Try again."));
+    }).then(function(){ sup.busy = false; sup.sel = {}; renderSupplierPage(); });
+  }
+  document.getElementById("supMarkRec").addEventListener("click", function(){ markSelected(true); });
+  document.getElementById("supMarkNotRec").addEventListener("click", function(){ markSelected(false); });
+  // ---- print: a print-only page (everything else hidden while printing), then removed ----
+  function printPage(html){
+    var old = document.getElementById("usoPrint"); if (old) old.remove();
+    var d = document.createElement("div"); d.id = "usoPrint"; d.innerHTML = html; document.body.appendChild(d);
+    var imgs = Array.prototype.slice.call(d.querySelectorAll("img"));
+    return Promise.all(imgs.map(function(im){ return im.complete ? null : new Promise(function(r){ im.onload = im.onerror = r; }); })).then(function(){
+      setTimeout(function(){
+        try{ window.print(); }catch(e){ showToast("This device can't print from here."); }
+        setTimeout(function(){ d.remove(); }, 1500);
+      }, 50);
+    });
+  }
+  function headerHtml(title){
+    var p = state.project;
+    return "<h1>" + escapeHtml(title) + "</h1><p class=\"pmeta\">" + escapeHtml((p.no ? p.no + " — " : "") + p.name) + " · " + escapeHtml(sup.name) + " · printed " + escapeHtml(formatDate(todayISO(), true)) + "</p>";
+  }
+  document.getElementById("supPrintTable").addEventListener("click", function(){
+    var sel = selectedOrders(), list = sel.length ? sel : supplierOrders().filter(function(o){ return !o.received; });
+    list.sort(function(a, b){ return String(a.requiredByDate || "9999").localeCompare(String(b.requiredByDate || "9999")) || String(a.joineryId).localeCompare(String(b.joineryId), undefined, { numeric: true }); });
+    if (!list.length){ showToast("No outstanding orders for " + sup.name + "."); return; }
+    var rows = list.map(function(o){ return "<tr><td>" + escapeHtml(o.joineryId) + "</td><td>" + escapeHtml(o.__desc) + "</td><td>" + escapeHtml(o.level) + "</td><td>" + escapeHtml(o.room) + "</td><td>" + escapeHtml(o.typeLabel || typeLabel(o.type)) + "</td><td>" + escapeHtml(o.poNumber || "") + "</td><td>" + escapeHtml(formatDate(o.requiredByDate, true) || "") + (isOverdue(o) ? " (overdue)" : "") + "</td><td>" + (o.received ? escapeHtml(formatDate(o.receivedDate, true)) : "") + "</td><td>" + escapeHtml(o.notes || "") + "</td></tr>"; }).join("");
+    printPage('<div class="pp">' + headerHtml(sel.length ? "Selected orders" : "Outstanding orders") + "<table><thead><tr><th>Item</th><th>Description</th><th>Level</th><th>Room</th><th>Type</th><th>PO #</th><th>Required by</th><th>Received</th><th>Notes</th></tr></thead><tbody>" + rows + "</tbody></table><p class=\"pmeta\">" + list.length + " order" + (list.length === 1 ? "" : "s") + "</p></div>");
+  });
+  // the order files themselves: a PDF's pages drawn with pdf.js (beside the app, works offline), a picture as it is
+  function loadPdfJs(){
+    if (window.pdfjsLib && window.pdfjsLib.getDocument) return Promise.resolve(window.pdfjsLib);
+    return new Promise(function(res, rej){ var el = document.createElement("script"); el.src = "./pdf.min.js"; el.onload = function(){ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc = "./pdf.worker.min.js"; }catch(e){} res(window.pdfjsLib); }; el.onerror = rej; document.head.appendChild(el); });
+  }
+  function orderPagesHtml(o){
+    return orderFileHandle(state.project.projectHandle, o, true).then(function(fh){ return fh.getFile(); }).then(function(f){
+      var cap = "<p class=\"pmeta\">" + escapeHtml(o.joineryId + " · " + (o.typeLabel || typeLabel(o.type)) + (o.poNumber ? " · PO " + o.poNumber : "") + " · " + o.fileName) + "</p>";
+      if (/^image\//.test(f.type) || /\.(png|jpe?g|gif|webp)$/i.test(o.fileName || "")) return new Promise(function(res){ var r = new FileReader(); r.onload = function(){ res('<div class="pp">' + cap + '<img src="' + r.result + '"></div>'); }; r.readAsDataURL(f); });
+      if (!/pdf/i.test(f.type) && !/\.pdf$/i.test(o.fileName || "")) return '<div class="pp">' + cap + "<p>(This file type can't be printed from here — open it instead.)</p></div>";
+      return Promise.all([loadPdfJs(), f.arrayBuffer()]).then(function(r){ return r[0].getDocument({ data: new Uint8Array(r[1]) }).promise; }).then(function(doc){
+        var html = "", n = 1;
+        function next(){
+          if (n > doc.numPages){ doc.destroy(); return html; }
+          return doc.getPage(n).then(function(pg){
+            var v1 = pg.getViewport({ scale: 1 }), sc = Math.min(2, 1400 / v1.width), vp = pg.getViewport({ scale: sc });
+            var cv = document.createElement("canvas"); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+            return pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise.then(function(){
+              html += '<div class="pp">' + (n === 1 ? cap : "") + '<img src="' + cv.toDataURL("image/jpeg", 0.85) + '"></div>';
+              cv.width = cv.height = 0; n++; return next(); // 4 GB tablets: one page's pixels at a time
+            });
+          });
+        }
+        return next();
+      });
+    }).catch(function(err){ console.error("Printing an order failed:", err); return '<div class="pp"><p>' + escapeHtml(o.joineryId + " — " + (o.fileName || "") + ": couldn't be read.") + "</p></div>"; });
+  }
+  document.getElementById("supPrintOrders").addEventListener("click", function(){
+    var list = selectedOrders(); if (!list.length) return;
+    sup.busy = true; syncSel(); showToast("Getting " + list.length + " order" + (list.length === 1 ? "" : "s") + " ready to print…");
+    var html = "", chain = Promise.resolve();
+    list.forEach(function(o){ chain = chain.then(function(){ return orderPagesHtml(o).then(function(h){ html += h; }); }); });
+    chain.then(function(){ return printPage(html); }).then(function(){ sup.busy = false; syncSel(); });
+  });
+  document.getElementById("supCsv").addEventListener("click", function(){
+    var list = selectedOrders(); if (!list.length) list = shownOrders();
+    function q(v){ v = String(v == null ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+    var lines = [["Supplier", "Item", "Description", "Level", "Room", "Type", "PO #", "Required by", "Received", "Received date", "Notes", "File"].join(",")];
+    list.forEach(function(o){ lines.push([sup.name, o.joineryId, o.__desc, o.level, o.room, o.typeLabel || typeLabel(o.type), o.poNumber, o.requiredByDate, o.received ? "Yes" : "No", o.receivedDate, o.notes, o.fileName].map(q).join(",")); });
+    var blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv" }), url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = ((state.project.no ? state.project.no + " - " : "") + sup.name + " - orders - " + todayISO() + ".csv").replace(/[\\/:*?"<>|]/g, "-");
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  });
 
   /* ============================================================
    * BOOT
@@ -3319,7 +3977,7 @@
       fields = fields || {};
       if (fields.type != null) attachTypeSel.value = fields.type;
       if (fields.requiredByDate != null) attachDateInput.value = fields.requiredByDate;
-      if (fields.supplier != null) attachSupplierInput.value = fields.supplier;
+      if (fields.supplier != null) setSupplierValue(fields.supplier);
       if (fields.poNumber != null) attachPoInput.value = fields.poNumber;
       if (fields.notes != null) attachNotesInput.value = fields.notes;
       updateAttachSubmitEnabled();

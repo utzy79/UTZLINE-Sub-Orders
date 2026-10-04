@@ -1,6 +1,12 @@
 # UTZLINE Sub Orders — installable app
 
-**Current version: v13** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.)
+**Current version: v17** (its own independent version line, separate from every other app in the family — bump this line, and add a dated entry below, every time a new build ships.) Also in v16: the lime green theme and icons are replaced by copper (accent #d9803f dark / #a85a1f light, warm surfaces).
+
+**v16 (2026-10-04): item numbers, everything split by room / item.** An order attached to an item now lives in that item's own folder, `Project Saves\UTZLINE Sub Orders\Orders\<Level>\<Room>\<item>\` (the order list and its files; <Room> is the room number). Attaching moves the file there from `Files\` and unattaching moves it back (copied and checked before the original is removed). Every joinery item has its own 3-digit number (001, 002 ... given once by Projects, never reused) and it follows the code in the item's file name ("JG.33.1 - 001"). Every save is split by level, room and item, even when a room has only one item. Fresh install: no older folders are read (Andrew: *"I DONT WANT BACKWRDS COMPATIBILITY. i am starting brand new"*).
+
+**v15 (2026-10-04): in-app PDF viewer.** PDFs open inside the app on phones and tablets (Zoom, Share, Save, Close; the Back button closes it and stays on the screen). **Supplier pages:** each project lists its suppliers (outstanding / overdue / total); a supplier's page is a table of its orders (Outstanding / All / Received, search, sort by any column, overdue in red) where you tick orders and Mark received (on a chosen date) or not received, Print selected orders (the order files' pages), Print table (the outstanding ones, or the ticked ones), Export CSV and Open each order.
+
+**v14 (2026-10-04): supplier dropdown, project-number order no.** Supplier is a dropdown of the shared saved names with "+ Add new supplier…" (a text box only for the first one or a new one). The PO / order number starts with the project number (e.g. 3749_) and Attach adds it if missing.
 
 **v13 (2026-10-02): new colour.** The magenta/pink accent is replaced by lime green (dark #9ccc3a, light #587f0c), with matching greenish-dark / pale backgrounds and a new icon. Andrew: "The pink is horrible".
 
