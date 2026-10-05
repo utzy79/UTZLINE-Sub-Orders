@@ -422,8 +422,8 @@
       ".upv-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}",
       ".upv-btn{font:inherit;font-size:14px;min-height:40px;padding:6px 12px;border-radius:8px;border:1px solid #4a5258;background:#2b3135;color:#fff;cursor:pointer;}",
       ".upv-btn.upv-close{background:#c8391c;border-color:#c8391c;font-weight:600;}",
-      ".upv-pages{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 0 40px;touch-action:pan-x pan-y pinch-zoom;}",
-      ".upv-page{margin:0 auto 10px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.4);position:relative;}",
+      ".upv-pages{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 0 40px;touch-action:pan-x pan-y;}",
+      ".upv-page{margin:0 8px 10px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.4);position:relative;}",
       ".upv-page canvas,.upv-page img{display:block;width:100%;height:100%;}",
       ".upv-msg{padding:30px 16px;text-align:center;color:#ccd;}"
     ].join("\n");
@@ -459,7 +459,7 @@
     if (!navigator.share) el.querySelector('[data-a="share"]').style.display = "none"; // Fully Kiosk / an Android WebView has no share sheet
     document.body.appendChild(el);
     var pagesEl = el.querySelector(".upv-pages");
-    var c = current = { el: el, doc: null, zoom: 1, observer: null, pushed: false };
+    var c = current = { el: el, doc: null, zoom: 1, max: 4, observer: null, pushed: false };
     // the device Back button closes the viewer, not the app
     c.prevState = history.state; // Close turns our entry back into this one (history.back() would also reach the app's own Back and leave its screen)
     try{ history.pushState({ utzPdfView: true }, ""); c.pushed = true; }catch(e){}
@@ -469,17 +469,38 @@
       if (a === "close") close();
       else if (a === "save") download(blob, name);
       else if (a === "share"){
-        var f = null; try{ f = new File([blob], name, { type: blob.type || "application/pdf" }); }catch(err){}
-        if (f && navigator.share && (!navigator.canShare || navigator.canShare({ files: [f] }))) navigator.share({ files: [f] }).catch(function(){});
-        else download(blob, name);
+        // (2026-10-04) Android: the file needs a real ".pdf" name and type or the share sheet refuses it (an anonymous "PDF" did); a share that
+        // fails for any reason but the person closing the sheet saves the file instead of doing nothing
+        var isPdfShare = /pdf/i.test(blob.type || "") || /\.pdf$/i.test(name) || /^(PDF|File)$/i.test(name);
+        var shareName = isPdfShare && !/\.pdf$/i.test(name) ? (/^(PDF|File)$/i.test(name) ? "Document" : name) + ".pdf" : name;
+        var f = null; try{ f = new File([blob], shareName, { type: isPdfShare ? "application/pdf" : (blob.type || "") }); }catch(err){}
+        if (f && navigator.share && (!navigator.canShare || navigator.canShare({ files: [f] }))){
+          navigator.share({ files: [f], title: shareName }).catch(function(err){
+            if (err && err.name === "AbortError") return;
+            console.error("Share failed:", err); download(blob, shareName);
+          });
+        } else download(blob, shareName);
       }
-      else if (a === "in" || a === "out"){ c.zoom = Math.max(1, Math.min(4, c.zoom * (a === "in" ? 1.5 : 1 / 1.5))); layout(); }
+      else if (a === "in" || a === "out"){ c.zoom = Math.max(1, Math.min(c.max, c.zoom * (a === "in" ? 1.5 : 1 / 1.5))); layout(); }
     });
     var pageBoxes = [];
     function layout(){
-      var w = Math.max(200, (pagesEl.clientWidth - 16) * c.zoom);
-      pageBoxes.forEach(function(p){ p.box.style.width = w + "px"; p.box.style.height = (w * p.ratio) + "px"; if (p.drawnAt && p.drawnAt < w * 0.9){ p.drawnAt = 0; if (p.visible) draw(p); } });
+      var w = Math.max(200, (pagesEl.clientWidth - 16) * c.zoom), wide = w > pagesEl.clientWidth - 16;
+      // centred while it fits; left-aligned once wider than the screen, so every part can be scrolled to
+      pageBoxes.forEach(function(p){ p.box.style.width = w + "px"; p.box.style.height = (w * p.ratio) + "px"; p.box.style.marginLeft = p.box.style.marginRight = wide ? "8px" : "auto"; if (!p.img && p.drawnAt && p.drawnAt < w * 0.9){ p.drawnAt = 0; if (p.visible) draw(p); } });
     }
+    // two-finger pinch (the page's own pinch-zoom is off inside the viewer, and +/- were the only zoom)
+    var pinch = null;
+    pagesEl.addEventListener("touchstart", function(e){
+      if (e.touches.length === 2) pinch = { d: Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY) || 1, z: c.zoom };
+    }, { passive: true });
+    pagesEl.addEventListener("touchmove", function(e){
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      var d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY) || 1;
+      c.zoom = Math.max(1, Math.min(c.max, pinch.z * d / pinch.d)); layout();
+    }, { passive: false });
+    pagesEl.addEventListener("touchend", function(e){ if (e.touches.length < 2) pinch = null; }, { passive: true });
     function draw(p){
       if (!c.doc || p.busy) return;
       var w = p.box.clientWidth; if (!w) return;
@@ -503,8 +524,14 @@
         // not a PDF (a photo): just show it
         var url = URL.createObjectURL(blob);
         pagesEl.innerHTML = ""; var box = document.createElement("div"); box.className = "upv-page"; box.style.width = "calc(100% - 16px)";
-        var img = document.createElement("img"); img.src = url; img.style.height = "auto"; box.appendChild(img); pagesEl.appendChild(box);
+        var img = document.createElement("img"); img.src = url; box.appendChild(img); pagesEl.appendChild(box);
         c.doc = { destroy: function(){ URL.revokeObjectURL(url); } };
+        // (2026-10-04) Andrew: no zoom on the site measure picture -- it is laid out like a page, so + / - and pinch resize it
+        c.max = 8;
+        var p = { n: 0, box: box, ratio: 0.75, visible: true, img: true };
+        pageBoxes.push(p);
+        img.onload = function(){ if (img.naturalWidth) p.ratio = img.naturalHeight / img.naturalWidth; layout(); };
+        layout();
         return;
       }
       return Promise.all([loadLib(), blob.arrayBuffer()]).then(function(r){
@@ -541,13 +568,19 @@
     });
     return el;
   }
+  // the name of a File behind each blob: URL, so a file opened through window.open keeps its own name for Share / Save (not "PDF")
+  var blobNames = {};
+  try{
+    var origCreate = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = function(obj){ var u = origCreate(obj); if (obj && obj.name) blobNames[u] = obj.name; return u; };
+  }catch(e){}
   // window.open(<blob: URL>) on a phone / tablet -> this viewer
   if (MOBILE){
     var nativeOpen = window.open;
     window.open = function(url, target, features){
       var u = String(url || "");
       if (/^blob:/i.test(u)){
-        fetch(u).then(function(r){ return r.blob(); }).then(function(b){ open(b, /pdf/i.test(b.type || "") ? "PDF" : "File"); }).catch(function(err){
+        fetch(u).then(function(r){ return r.blob(); }).then(function(b){ open(b, blobNames[u] || (/pdf/i.test(b.type || "") ? "Document.pdf" : "File")); }).catch(function(err){
           console.error("Couldn't open that file here:", err);
           try{ nativeOpen.call(window, url, target, features); }catch(e){}
         });
@@ -1545,9 +1578,9 @@
      are not read (2026-10-04, Andrew: "I DONT WANT BACKWRDS COMPATIBILITY"). docsDir() hands back a stand-in folder.
      An item moved to another room afterwards keeps its files in the old room's folder: they are not listed with the
      item (logged in the notes). */
-  // (v98+) the folder under PDFs\ for each kind: job notes are "IFC" (Issued For Construction -- Andrew 2026-10-02: "change JN to IFC"); the code
+  // (v98+) the folder under PDFs\ for each kind: job notes are "AS BUILT" (2026-10-04, Andrew: "change IFC folder name to AS BUILT"; was "IFC", Issued For Construction -- Andrew 2026-10-02: "change JN to IFC"); the code
   // (and every call site) still says "JN" -- only the folder and the file-name tag read IFC.
-  var DOC_NEW = { JN: "IFC", SD: "SD" };
+  var DOC_NEW = { JN: "AS BUILT", SD: "SD" };
   var NO_WHERE = { level: "", room: "" }; // an item the app can't place: PDFs\IFC\No level\No room\<item>
   // (2026-10-04) Andrew: "use the level Abbreviation in projects (when you import)" -- Projects keeps each level's abbreviation on its
   // items ("levelAbbr" in joinery-items.json); register() collects them, and every level folder is that abbreviation when the level has one.
@@ -1559,6 +1592,40 @@
     var ab = abbrOf(level, project); if (ab) return ab;
     if (window.UtzEvents && UtzEvents.levelFolder) return UtzEvents.levelFolder(level);
     return clean(level, 30) || "No level";
+  }
+  // (2026-10-04) the saved site measure PDFs for an item, newest first: the item's own folder PDFs\CM\<Level>\<Room>\<item>\ and its room's
+  // PDFs\CM\<Level>\<Room>\ (a room's one site measure). -> [{ handle, name, t }]
+  function siteMeasurePdfs(ph, level, room, key){
+    var base = ["PDFs", "CM", levelSeg(level, ph && ph.name), roomSeg(room)];
+    function pdfs(segs){
+      return tryWalk(ph, segs).then(function(d){
+        if (!d) return [];
+        return listHandles(d).then(function(hs){
+          var files = hs.filter(function(h){ return h && h.kind === "file" && /\.pdf$/i.test(h.name); });
+          return Promise.all(files.map(function(h){ return h.getFile().then(function(f){ return { handle: h, name: h.name, t: f.lastModified || 0 }; }, function(){ return { handle: h, name: h.name, t: 0 }; }); }));
+        });
+      }, function(){ return []; });
+    }
+    return Promise.all([pdfs(base.concat([clean(key, 50) || "item"])), pdfs(base)]).then(function(r){
+      var all = r[0].concat(r[1]); all.sort(function(a, b){ return b.t - a.t; }); return all;
+    });
+  }
+  /* (2026-10-04) Andrew: the name a document is shown and saved under on the summary pages --
+       <project> -- <TAG> -- <room no.> - <code> - <no.> [- <revision>] - <saved>
+     e.g. "3756 - Jones Radiology Mt Barker -- AS BUILT -- G.01 - JG.01.1 - 001 - 2026-10-04 22-04-55". Display and download / share name only: the file on disk keeps
+     its own name. saved: the "YYYY-MM-DD HH-mm-ss" in the file's name, else the file's own date. */
+  function docStamp(fileName, lastModified){
+    var m = /(\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2})/.exec(String(fileName || ""));
+    if (m) return m[1];
+    if (!lastModified) return "";
+    var d = new Date(lastModified); function p2(n){ return (n < 10 ? "0" : "") + n; }
+    return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + " " + p2(d.getHours()) + "-" + p2(d.getMinutes()) + "-" + p2(d.getSeconds());
+  }
+  function docTitle(o){
+    // o: { tag, project, room, code, no, rev, stamp }
+    var item = [roomShort(o.room), o.code, o.no, o.rev, o.stamp].filter(function(x){ return x != null && String(x) !== ""; });
+    // the room belongs with the code ("G.01 - JG.01.1"), the number and revision follow it
+    return [clean(o.project || "", 40), o.tag, item.join(" - ")].filter(Boolean).join(" -- ");
   }
   // the room NUMBER: the first part with a digit ("H1.MH.040", "101"); no number: the name itself, cut to 14
   function roomShort(room){
@@ -1855,7 +1922,7 @@
     version: 1, MAX: MAX,
     clean: clean, baseOf: baseOf, valid: valid, assign: assign, register: register, fileKey: fileKey,
     initials: initials, stamp: stamp, tripleKey: tripleKey, roomMeasureKey: roomMeasureKey,
-    levelSeg: levelSeg, roomShort: roomShort, roomSeg: roomSeg, where: where, docPathSegs: docPathSegs,
+    levelSeg: levelSeg, roomShort: roomShort, docTitle: docTitle, docStamp: docStamp, siteMeasurePdfs: siteMeasurePdfs, roomSeg: roomSeg, where: where, docPathSegs: docPathSegs,
     docsDir: docsDir, docsKeys: docsKeys, docsForget: docsForget, isNotFound: isNF,
     itemNo: itemNo, label: label, pad3: pad3, itemSegs: itemSegs, roomSegs: roomSegs, itemDir: itemDir, roomDir: roomDir, listItemDirs: listItemDirs, itpChecklist: itpChecklist, itpLogDir: itpLogDir, itpPdfDir: itpPdfDir, smParent: smParent, smDir: smDir, smDirForItem: smDirForItem, smParentSegs: smParentSegs, listSiteMeasureKeys: listSiteMeasureKeys, ordersDir: ordersDir, listOrdersDirs: listOrdersDirs, ORDERS_ROOT: ORDERS_ROOT, walk: walkDirs, tryWalk: tryWalk,
     _maps: function(){ return maps; }
