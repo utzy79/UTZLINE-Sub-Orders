@@ -94,13 +94,15 @@
 var ICON_VERSION = "v1";
 // v6 (2026-09-27): "Schedule Backups" folder hidden from the project list.
 // v10 (2026-10-02): RC 1.0 -- builder logo far right of the top bar, logos folder, reversed Machined, dark-mode controls, drag and drop only.
-var CACHE_NAME = "utzline-sub-orders-cache-v19";
+var CACHE_NAME = "utzline-sub-orders-cache-v25";
 
 var PRECACHE_URLS = [
   "./",
   "./index.html",
   "./pdf.min.js", // (2026-10-04) the in-app PDF viewer (shared/pdf-view)
   "./pdf.worker.min.js",
+  "./pdf-lib.min.js", // (2026-10-06) stamps each PDF order with its QR code
+
   "./manifest.json?v=" + ICON_VERSION,
   "./icons/icon-192.png?v=" + ICON_VERSION,
   "./icons/icon-512.png?v=" + ICON_VERSION,
