@@ -1996,6 +1996,356 @@
 })();
 </script>
 <!-- UTZLINE-ITEM-FILES END -->
+<!-- UTZLINE-LEVEL-ZONES BEGIN (generated from shared/level-zones -- don't edit here) -->
+<script>
+/* ============================== UTZLINE level zones (2026-10-10) ==============================
+   Andrew: "zones are not levels". UTZLINE Projects saves a level split over several floor plans as one level file PER PLAN, named
+   "<Level> (<Zone>)" on disk ("LEVEL 1 (H1b)"), and keeps the split in Project Saves\level-zones.json
+   ({ byLevel: { "<disk name>": { level, zone, codes } } }). Items carry the disk name as their level. An app that SHOWS levels reads
+   this to show the real level ("LEVEL 1") -- the zone is which plan the room is drawn on, not a level.
+     UtzLevelZones.read(projectHandle) -> Promise<meta>  ({ byLevel: {} } when the project has none; never throws)
+     UtzLevelZones.split(diskName, meta) -> { level, zone }   (the file, else the "(zone)" pattern of the name, else the name itself)
+     UtzLevelZones.label(diskName, meta) -> the level to show      UtzLevelZones.full(diskName, meta) -> "LEVEL 1 · H1b" (the name when no zone)
+     UtzLevelZones.groups(names, meta) -> [{ level, members: [{ name, zone }] }]   UtzLevelZones.siblings(name, names, meta) -> the group when split, else null
+     UtzLevelZones.optionsHtml(names, meta, esc) -> <option>s for a <select>: a split level is an <optgroup> of its plans (values stay the disk names)
+     UtzLevelZones.tabs(el, name, names, meta, onPick(diskName)) -> the level's plans as tabs in el (hidden when the level has one plan)
+     UtzLevelZones.use(ph, onLoaded) -> the cached meta for this project at once ({ byLevel: {} } before the file is read), onLoaded(meta) once read
+   Plain ES5, no dependencies. Generated into each app between UTZLINE-LEVEL-ZONES markers -- edit here, run shared/sync_app_blocks.py. */
+(function(){
+  "use strict";
+  if (window.UtzLevelZones) return;
+  var RE = /^(.*\S)\s*\(([^()]+)\)\s*$/;
+  function read(ph){
+    if (!ph) return Promise.resolve({ byLevel: {} });
+    return ph.getDirectoryHandle("Project Saves", { create: false }).then(function(d){ return d.getFileHandle("level-zones.json", { create: false }); })
+      .then(function(fh){ return fh.getFile(); }).then(function(f){ return f.text(); })
+      .then(function(t){ var j = JSON.parse(t); return j && j.byLevel && typeof j.byLevel === "object" ? j : { byLevel: {} }; }, function(){ return { byLevel: {} }; })
+      .then(null, function(){ return { byLevel: {} }; });
+  }
+  function split(name, meta){
+    name = String(name == null ? "" : name);
+    var m = meta && meta.byLevel && meta.byLevel[name];
+    if (m && m.level) return { level: String(m.level), zone: String(m.zone || "") };
+    var mm = RE.exec(name);
+    return mm ? { level: mm[1], zone: mm[2] } : { level: name, zone: "" };
+  }
+  function label(name, meta){ return split(name, meta).level; }
+  function full(name, meta){ var s = split(name, meta); return s.zone ? s.level + " · " + s.zone : s.level; }
+  function groups(names, meta){
+    var out = [], by = {};
+    (names || []).forEach(function(n){ var sp = split(n, meta), k = sp.level.toLowerCase(); if (!by[k]){ by[k] = { level: sp.level, members: [] }; out.push(by[k]); } by[k].members.push({ name: n, zone: sp.zone }); });
+    return out;
+  }
+  function siblings(name, names, meta){
+    var gs = groups(names, meta);
+    for (var i = 0; i < gs.length; i++){ var g = gs[i]; if (g.members.length >= 2 && g.members.some(function(m){ return m.name === name; })) return g; }
+    return null;
+  }
+  function esc0(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){ return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function optionsHtml(names, meta, esc){
+    esc = esc || esc0;
+    return groups(names, meta).map(function(g){
+      if (g.members.length < 2) return '<option value="' + esc(g.members[0].name) + '">' + esc(g.members[0].zone ? g.level : g.members[0].name) + "</option>";
+      return '<optgroup label="' + esc(g.level) + '">' + g.members.map(function(m){ return '<option value="' + esc(m.name) + '">' + esc(m.zone || m.name) + "</option>"; }).join("") + "</optgroup>";
+    }).join("");
+  }
+  var cssDone = false;
+  function css(){
+    if (cssDone || !document.head) return; cssDone = true;
+    var st = document.createElement("style"); st.id = "utzLevelZonesCss";
+    st.textContent = ".utz-lz-tabs{display:inline-flex;gap:4px;flex-wrap:wrap;align-items:center;margin:0 0 0 10px;vertical-align:middle}" +
+      ".utz-lz-tabs.block{display:flex;margin:2px 0 10px;border-bottom:1px solid var(--border,#555)}" +
+      ".utz-lz-tabs button{background:transparent;border:0;border-bottom:3px solid transparent;margin-bottom:-1px;color:var(--muted,#999);font:inherit;font-size:13px;font-weight:700;padding:4px 10px;cursor:pointer;touch-action:manipulation}" +
+      ".utz-lz-tabs.block button{padding:8px 12px;font-size:14px}" +
+      ".utz-lz-tabs button.on{color:var(--text,#fff);border-bottom-color:var(--accent,#3db2ff)}";
+    document.head.appendChild(st);
+  }
+  function tabs(el, name, names, meta, onPick){
+    if (!el) return null;
+    css();
+    var g = siblings(name, names, meta);
+    el.innerHTML = ""; el.hidden = !g;
+    if (!g) return null;
+    g.members.forEach(function(m){
+      var b = document.createElement("button"); b.type = "button"; b.textContent = m.zone || m.name; b.className = m.name === name ? "on" : "";
+      b.setAttribute("data-plan", m.name); b.title = "Open this plan of " + g.level;
+      b.addEventListener("click", function(){ if (m.name !== name) onPick(m.name); });
+      el.appendChild(b);
+    });
+    return g;
+  }
+  var cache = {}, pending = {};
+  function use(ph, onLoaded){
+    var k = ph && ph.name; if (!k) return { byLevel: {} };
+    if (cache[k]) return cache[k];
+    if (!pending[k]){ pending[k] = read(ph).then(function(m){ cache[k] = m; delete pending[k]; if (onLoaded) onLoaded(m); }); }
+    return { byLevel: {} };
+  }
+  function forget(ph){ var k = ph && ph.name; if (k) delete cache[k]; else cache = {}; }
+  // load(ph) -> Promise<meta>: reads once and seeds use()'s cache so the next use(ph) is the real file (for screens that can wait for it)
+  function load(ph){ var k = ph && ph.name; if (!k) return Promise.resolve({ byLevel: {} }); if (cache[k]) return Promise.resolve(cache[k]); return read(ph).then(function(m){ cache[k] = m; return m; }); }
+  window.UtzLevelZones = { read: read, split: split, label: label, full: full, groups: groups, siblings: siblings, optionsHtml: optionsHtml, tabs: tabs, use: use, load: load, forget: forget };
+})();
+</script>
+<!-- UTZLINE-LEVEL-ZONES END -->
+<!-- UTZLINE-COLUMNS BEGIN (generated from shared/columns -- don't edit here) -->
+<script>
+/* ============================== UTZLINE columns: hide / rearrange (2026-09-30) ==============================
+   Andrew: "all schedules need the option to hide, rearrange columns".
+   A "Columns" button beside a table's Text size bar opens a list of its columns: tick to show / untick to
+   hide, ▲ ▼ to move. The frozen identity columns at the left (Level / Room / Joinery ID …) and the trailing
+   actions column stay where they are. The choice is remembered per device, per table, and re-applied every
+   time the app redraws the rows (a MutationObserver on the body -- the apps' own render code is untouched).
+     UtzColumns.attach(tableEl, { storageKey, frozen: N, fixedEnd: M, mountBefore: el, onApply: fn })
+       - columns are identified by <th data-col>, else the header text, else their index
+       - frozen (default 0): the first N columns can't be hidden or moved; fixedEnd (default: the trailing
+         <th> with no text and no data-col, e.g. the row-actions column) likewise
+       - toggle: ids of frozen columns that stay in place but can still be ticked off (2026-10-04: the item "No.")
+       - mountBefore: the button goes inside this element (the .tv-zoom bar) or before the table's box
+       - sort: true (2026-10-10, Andrew: "all tables need to be sortable, selectable columns"): tap a column heading to sort by it
+         (ascending, then descending, then the original order; remembered per device). Numbers, $ amounts, %, dd.mm.yyyy dates and text
+         sort properly; empty cells go last. Rows with data-sort-fixed (group headings, totals) are boundaries: the rows between two of
+         them are sorted among themselves; a row with data-sort-last stays at the end of its group. A row with data-utz-span (a group
+         heading with one cell) is stretched across the visible columns. A cell's data-sv attribute overrides what is sorted on.
+     UtzColumns.ensure(tableEl, key, opts) -> attaches (once the table has its heading row), and re-attaches under a new key when the app
+       switches the table to another set of columns (e.g. Variations / RFIs); detach(tableEl) removes it
+     UtzColumns.apply(tableEl) / reset(tableEl) / state(tableEl) -> { order, hidden, sort }
+   Plain ES5. */
+(function(){
+  "use strict";
+  if (window.UtzColumns) return;
+  var openPop = null;
+  function lsGet(k){ try{ return JSON.parse(localStorage.getItem(k) || "null"); }catch(e){ return null; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function colId(th, i){ return th.getAttribute("data-col") || (th.textContent || "").trim() || ("col" + i); }
+  function headRow(t){ return t && t.tHead && t.tHead.rows.length ? t.tHead.rows[0] : null; }
+  function tagRow(st, row){
+    // cells the app just drew are in the ORIGINAL order; cells this module already moved carry their id
+    var cells = Array.prototype.slice.call(row.cells);
+    if (cells.length && !cells[0].hasAttribute("data-utz-col")){
+      cells.forEach(function(c, i){ if (i < st.ids.length) c.setAttribute("data-utz-col", st.ids[i]); });
+    }
+    return cells;
+  }
+  function desiredOrder(st){
+    var mov = st.order.filter(function(id){ return st.movable.indexOf(id) !== -1; });
+    st.movable.forEach(function(id){ if (mov.indexOf(id) === -1) mov.push(id); }); // a column the app added since
+    return st.front.concat(mov, st.end);
+  }
+  function applyRow(st, row, order, hiddenSet){
+    if (row.hasAttribute("data-utz-span")) return; // stretched over the visible columns in apply()
+    var cells = tagRow(st, row), byId = {};
+    cells.forEach(function(c){ byId[c.getAttribute("data-utz-col")] = c; });
+    var frag = document.createDocumentFragment(), extra = cells.filter(function(c){ return order.indexOf(c.getAttribute("data-utz-col")) === -1; });
+    order.forEach(function(id){ var c = byId[id]; if (c){ c.classList.toggle("utz-col-hidden", hiddenSet[id] === true); frag.appendChild(c); } });
+    extra.forEach(function(c){ frag.appendChild(c); });
+    row.appendChild(frag);
+  }
+  function apply(t){
+    var st = t && t.__utzCols; if (!st) return;
+    var order = desiredOrder(st), hiddenSet = {};
+    st.hidden.forEach(function(id){ if (canHide(st, id)) hiddenSet[id] = true; });
+    st.applying = true;
+    try{
+      var hr = headRow(t); if (hr) applyRow(st, hr, order, hiddenSet);
+      Array.prototype.forEach.call(t.tBodies, function(tb){ Array.prototype.forEach.call(tb.rows, function(r){ applyRow(st, r, order, hiddenSet); }); });
+      if (st.sortable){ sortBodies(st); markSort(st); }
+      var visible = order.filter(function(id){ return !hiddenSet[id]; }).length;
+      Array.prototype.forEach.call(t.tBodies, function(tb){ Array.prototype.forEach.call(tb.rows, function(r){ if (r.hasAttribute("data-utz-span") && r.cells[0]) r.cells[0].colSpan = Math.max(1, visible); }); });
+    } finally { st.applying = false; }
+    if (st.btn) st.btn.classList.toggle("utz-cols-on", st.hidden.length > 0 || JSON.stringify(st.order) !== JSON.stringify(st.movable));
+    if (st.onApply){ try{ st.onApply(t); }catch(e){} }
+  }
+  // ---- sorting (opt-in: sort: true) ----
+  function cellKey(c){
+    if (!c) return null;
+    var t = c.hasAttribute("data-sv") ? c.getAttribute("data-sv") : null;
+    if (t === null){ var inp = c.querySelector("input,select"); t = inp ? inp.value : (c.textContent || ""); }
+    t = String(t).replace(/\s+/g, " ").trim();
+    if (!t) return null;
+    var d = /^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/.exec(t); if (d) return { n: +d[3] * 10000 + +d[2] * 100 + +d[1] };
+    var n = t.replace(/[$,%\s]/g, ""); if (/^-?\d+(\.\d+)?$/.test(n)) return { n: parseFloat(n) };
+    return { s: t.toLowerCase() };
+  }
+  function cmpKeys(a, b){
+    if (a.n !== undefined && b.n !== undefined) return a.n - b.n;
+    var x = a.n !== undefined ? String(a.n) : a.s, y = b.n !== undefined ? String(b.n) : b.s;
+    return x.localeCompare(y, undefined, { numeric: true, sensitivity: "base" });
+  }
+  function sortBodies(st){
+    var s = st.sort;
+    Array.prototype.forEach.call(st.table.tBodies, function(tb){
+      var rows = Array.prototype.slice.call(tb.rows), out = [], run = [], i0 = 0;
+      rows.forEach(function(r){ if (!r.hasAttribute("data-utz-i")) r.setAttribute("data-utz-i", String(i0)); i0++; });
+      function idx(r){ return +r.getAttribute("data-utz-i"); }
+      function flush(){
+        if (!run.length) return;
+        var body = run.filter(function(r){ return !r.hasAttribute("data-sort-last"); }), tail = run.filter(function(r){ return r.hasAttribute("data-sort-last"); });
+        if (s && s.id){
+          var keyed = body.map(function(r){ var cell = null; for (var k = 0; k < r.cells.length; k++) if (r.cells[k].getAttribute("data-utz-col") === s.id){ cell = r.cells[k]; break; } return { r: r, k: cellKey(cell) }; });
+          keyed.sort(function(a, b){
+            if (!a.k && !b.k) return idx(a.r) - idx(b.r);
+            if (!a.k) return 1; if (!b.k) return -1;   // empty last, whichever way it is sorted
+            var c = cmpKeys(a.k, b.k); if (s.dir === "desc") c = -c;
+            return c || idx(a.r) - idx(b.r);
+          });
+          body = keyed.map(function(x){ return x.r; });
+        } else body.sort(function(a, b){ return idx(a) - idx(b); });
+        out = out.concat(body, tail); run = [];
+      }
+      rows.forEach(function(r){ if (r.hasAttribute("data-sort-fixed") || r.hasAttribute("data-utz-span")){ flush(); out.push(r); } else run.push(r); });
+      flush();
+      var changed = false; for (var i = 0; i < rows.length; i++) if (rows[i] !== out[i]){ changed = true; break; }
+      if (changed){ var frag = document.createDocumentFragment(); out.forEach(function(r){ frag.appendChild(r); }); tb.appendChild(frag); }
+    });
+  }
+  function markSort(st){
+    var hr = headRow(st.table); if (!hr) return;
+    Array.prototype.forEach.call(hr.cells, function(th, i){
+      var id = th.getAttribute("data-utz-col") || st.ids[i], on = st.sort && st.sort.id === id;
+      th.classList.add("utz-sortable"); th.classList.toggle("utz-sort-asc", !!on && st.sort.dir === "asc"); th.classList.toggle("utz-sort-desc", !!on && st.sort.dir === "desc");
+      th.setAttribute("aria-sort", on ? (st.sort.dir === "asc" ? "ascending" : "descending") : "none");
+    });
+  }
+  function canHide(st, id){ return st.movable.indexOf(id) !== -1 || st.toggle.indexOf(id) !== -1; }
+  function save(st){ if (st.storageKey) lsSet(st.storageKey, { order: st.order, hidden: st.hidden, sort: st.sort || null }); }
+  function label(st, id){ var th = st.thById[id]; return th ? ((th.textContent || "").trim() || id) : id; }
+  function buildPop(st){
+    var pop = st.pop; pop.innerHTML = "";
+    var h = document.createElement("div"); h.className = "utz-cols-head"; h.textContent = "Columns — tick to show, ▲ ▼ to move" + (st.sortable ? ". Tap a heading to sort." : ""); pop.appendChild(h);
+    var order = desiredOrder(st).filter(function(id){ return st.movable.indexOf(id) !== -1; });
+    st.toggle.forEach(function(id){ // fixed in place: a tick box, no arrows
+      var row = document.createElement("div"); row.className = "utz-cols-row";
+      var lab = document.createElement("label");
+      var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = st.hidden.indexOf(id) === -1; cb.setAttribute("data-col", id);
+      cb.addEventListener("change", function(){ var k = st.hidden.indexOf(id); if (cb.checked && k !== -1) st.hidden.splice(k, 1); else if (!cb.checked && k === -1) st.hidden.push(id); save(st); apply(st.table); });
+      var sp = document.createElement("span"); sp.textContent = label(st, id);
+      lab.appendChild(cb); lab.appendChild(sp); row.appendChild(lab); pop.appendChild(row);
+    });
+    order.forEach(function(id, i){
+      var row = document.createElement("div"); row.className = "utz-cols-row";
+      var lab = document.createElement("label");
+      var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = st.hidden.indexOf(id) === -1; cb.setAttribute("data-col", id);
+      cb.addEventListener("change", function(){ var k = st.hidden.indexOf(id); if (cb.checked && k !== -1) st.hidden.splice(k, 1); else if (!cb.checked && k === -1) st.hidden.push(id); save(st); apply(st.table); });
+      var sp = document.createElement("span"); sp.textContent = label(st, id);
+      lab.appendChild(cb); lab.appendChild(sp);
+      var up = document.createElement("button"); up.type = "button"; up.className = "utz-cols-move"; up.textContent = "▲"; up.title = "Move left"; up.disabled = i === 0;
+      var dn = document.createElement("button"); dn.type = "button"; dn.className = "utz-cols-move"; dn.textContent = "▼"; dn.title = "Move right"; dn.disabled = i === order.length - 1;
+      up.addEventListener("click", function(){ move(st, id, -1); });
+      dn.addEventListener("click", function(){ move(st, id, 1); });
+      row.appendChild(lab); row.appendChild(up); row.appendChild(dn); pop.appendChild(row);
+    });
+    var reset = document.createElement("button"); reset.type = "button"; reset.className = "utz-cols-reset"; reset.textContent = "Show all, original order";
+    reset.addEventListener("click", function(){ st.order = st.movable.slice(); st.hidden = []; st.sort = null; save(st); apply(st.table); buildPop(st); });
+    pop.appendChild(reset);
+  }
+  function move(st, id, dir){
+    var order = desiredOrder(st).filter(function(x){ return st.movable.indexOf(x) !== -1; });
+    var i = order.indexOf(id), j = i + dir;
+    if (i === -1 || j < 0 || j >= order.length) return;
+    order.splice(i, 1); order.splice(j, 0, id);
+    st.order = order; save(st); apply(st.table); buildPop(st);
+  }
+  function close(){ if (openPop){ openPop.pop.hidden = true; openPop.btn.setAttribute("aria-expanded", "false"); openPop = null; } }
+  function attach(t, o){
+    if (!t || t.__utzCols) return t && t.__utzCols;
+    o = o || {};
+    var hr = headRow(t); if (!hr) return null;
+    var ths = Array.prototype.slice.call(hr.cells);
+    var ids = ths.map(colId), thById = {};
+    ths.forEach(function(th, i){ thById[ids[i]] = th; });
+    var frozen = o.frozen || 0;
+    var fixedEnd = o.fixedEnd;
+    if (fixedEnd === undefined){ fixedEnd = 0; for (var k = ths.length - 1; k >= 0; k--){ var th = ths[k]; if (!th.getAttribute("data-col") && !(th.textContent || "").trim()) fixedEnd++; else break; } }
+    var st = { table: t, ids: ids, thById: thById, front: ids.slice(0, frozen), end: fixedEnd ? ids.slice(ids.length - fixedEnd) : [], movable: ids.slice(frozen, ids.length - fixedEnd),
+               toggle: (o.toggle || []).filter(function(id){ return ids.slice(0, frozen).indexOf(id) !== -1; }),
+               order: [], hidden: [], sort: null, sortable: !!o.sort, storageKey: o.storageKey || null, onApply: o.onApply || null, applying: false };
+    var saved = st.storageKey ? lsGet(st.storageKey) : null;
+    if (saved && typeof saved === "object"){
+      if (Array.isArray(saved.order)) st.order = saved.order.filter(function(id){ return st.movable.indexOf(id) !== -1; });
+      if (Array.isArray(saved.hidden)) st.hidden = saved.hidden.filter(function(id){ return canHide(st, id); });
+      if (st.sortable && saved.sort && ids.indexOf(saved.sort.id) !== -1 && (saved.sort.dir === "asc" || saved.sort.dir === "desc")) st.sort = { id: saved.sort.id, dir: saved.sort.dir };
+    }
+    if (st.sortable){ // a tap on a column heading: ascending, descending, original order
+      t.addEventListener("click", function(e){
+        if (t.__utzCols !== st) return;
+        var th = e.target && e.target.closest ? e.target.closest("th") : null;
+        if (!th || !t.tHead || th.parentNode.parentNode !== t.tHead || e.target.closest("input,select,button,a")) return;
+        var id = th.getAttribute("data-utz-col") || ids[Array.prototype.indexOf.call(th.parentNode.cells, th)];
+        if (!id || !(th.textContent || "").trim()) return;
+        st.sort = !st.sort || st.sort.id !== id ? { id: id, dir: "asc" } : st.sort.dir === "asc" ? { id: id, dir: "desc" } : null;
+        save(st); apply(t);
+      });
+    }
+    if (!st.order.length) st.order = st.movable.slice();
+    t.__utzCols = st;
+    // the button + popover
+    var wrap = document.createElement("span"); wrap.className = "utz-cols";
+    var btn = document.createElement("button"); btn.type = "button"; btn.className = "utz-cols-btn"; btn.setAttribute("aria-haspopup", "true"); btn.setAttribute("aria-expanded", "false"); btn.textContent = "Columns ▾";
+    var pop = document.createElement("div"); pop.className = "utz-cols-pop"; pop.hidden = true;
+    wrap.appendChild(btn); wrap.appendChild(pop);
+    st.btn = btn; st.pop = pop;
+    var host = o.mountBefore || null;
+    if (host && host.parentNode){ host.appendChild(wrap); }
+    else { var box = t.parentNode; box.parentNode.insertBefore(wrap, box); }
+    btn.addEventListener("click", function(e){ e.preventDefault(); e.stopPropagation(); if (openPop && openPop !== st) close(); if (pop.hidden){ buildPop(st); pop.hidden = false; btn.setAttribute("aria-expanded", "true"); openPop = st; } else close(); });
+    pop.addEventListener("click", function(e){ e.stopPropagation(); });
+    // re-apply after every redraw of the rows
+    try{
+      var raf = 0;
+      var mo = new MutationObserver(function(){ if (st.applying || t.__utzCols !== st) return; if (!raf) raf = requestAnimationFrame(function(){ raf = 0; apply(t); }); });
+      Array.prototype.forEach.call(t.tBodies, function(tb){ mo.observe(tb, { childList: true }); });
+      if (t.tHead) mo.observe(t.tHead, { childList: true }); // rows replaced only -- never subtree, this module's own cell moves must not re-trigger it
+      st.mo = mo;
+    }catch(e){}
+    apply(t);
+    return st;
+  }
+  function detach(t){
+    var st = t && t.__utzCols; if (!st) return;
+    try{ if (st.mo) st.mo.disconnect(); }catch(e){}
+    if (openPop === st) close();
+    if (st.btn && st.btn.parentNode && st.btn.parentNode.parentNode) st.btn.parentNode.parentNode.removeChild(st.btn.parentNode);
+    t.__utzCols = null;
+    if (t.tHead) Array.prototype.forEach.call(t.tHead.querySelectorAll("th"), function(th){ th.classList.remove("utz-sortable", "utz-sort-asc", "utz-sort-desc"); th.removeAttribute("data-utz-col"); });
+  }
+  function ensure(t, key, o){
+    if (!t || !t.tHead || !t.tHead.rows.length) return null;
+    var st = t.__utzCols;
+    if (st && st.key !== key){ detach(t); st = null; }
+    if (st) return st;
+    o = o || {}; o.storageKey = key; st = attach(t, o); if (st) st.key = key; return st;
+  }
+  function reset(t){ var st = t && t.__utzCols; if (!st) return; st.order = st.movable.slice(); st.hidden = []; st.sort = null; save(st); apply(t); }
+  function state(t){ var st = t && t.__utzCols; return st ? { order: desiredOrder(st).filter(function(x){ return st.movable.indexOf(x) !== -1; }), hidden: st.hidden.slice(), sort: st.sort ? { id: st.sort.id, dir: st.sort.dir } : null } : null; }
+  document.addEventListener("click", function(){ close(); });
+  document.addEventListener("keydown", function(e){ if (e.key === "Escape") close(); });
+  window.UtzColumns = { attach: attach, ensure: ensure, detach: detach, apply: apply, reset: reset, state: state, close: close };
+})();
+</script>
+<style>
+  /* ---- UTZLINE columns: hide / rearrange (2026-09-30) -- see shared/columns/columns.js ---- */
+  .utz-col-hidden{ display: none !important; }
+  .utz-cols{ position: relative; display: inline-block; margin-left: 10px; }
+  .utz-cols-btn{ min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; touch-action: manipulation; }
+  .utz-cols-btn.utz-cols-on{ border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .utz-cols-pop{ position: absolute; top: calc(100% + 4px); right: 0; z-index: 60; min-width: 280px; max-height: 70vh; overflow-y: auto; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.35); text-align: left; }
+  .utz-cols-pop[hidden]{ display: none; }
+  .utz-cols-head{ font-size: 12px; color: var(--muted); padding: 4px 6px 8px; }
+  .utz-cols-row{ display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 2px 6px; border-radius: 8px; }
+  .utz-cols-row:hover{ background: var(--panel2); }
+  .utz-cols-row label{ flex: 1; display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text); cursor: pointer; }
+  .utz-cols-row input{ width: 20px; height: 20px; margin: 0; accent-color: var(--accent); flex: none; }
+  .utz-cols-move{ width: 34px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); font-size: 12px; cursor: pointer; touch-action: manipulation; }
+  .utz-cols-move:disabled{ opacity: .35; cursor: default; }
+  .utz-cols-reset{ display: block; width: 100%; margin-top: 8px; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; }
+  /* sortable headings (sort: true) */
+  th.utz-sortable{ cursor: pointer; user-select: none; -webkit-user-select: none; }
+  th.utz-sortable:hover{ color: var(--text); }
+  th.utz-sort-asc::after{ content: " \25B2"; font-size: 9px; color: var(--accent); }
+  th.utz-sort-desc::after{ content: " \25BC"; font-size: 9px; color: var(--accent); }
+</style>
+<!-- UTZLINE-COLUMNS END -->
 <!-- UTZLINE-CHANGE-FOLDER BEGIN -->
 <style id="utzChangeFolderStyle">
 /* (2026-09-30) "move the change folder to the bottom right of the page, and smaller" */
@@ -2567,7 +2917,8 @@
   var APP_CODES = [
     ["SiteMeasure", "Site Measure"], ["Viewer", "Viewer"], ["Projects", "Projects"], ["Scheduler", "Scheduler"],
     ["MachineSchedule", "Machine Schedule"], ["SolidSurfaceSchedule", "Solid Surface Schedule"],
-    ["ManufactureITP", "Manufacture ITP"], ["DeliveryITP", "Delivery ITP"], ["InstallITP", "Install ITP"], ["SubOrders", "Sub Orders"], ["ShopDrawings", "Shop Drawings"], ["Drafting", "Drafting Schedule"], ["DollarSummary", "$ Summary (finance)"]
+    ["ManufactureITP", "Manufacture ITP"], ["DeliveryITP", "Delivery ITP"], ["InstallITP", "Install ITP"], ["SubOrders", "Sub Orders"], ["ShopDrawings", "Shop Drawings"], ["Drafting", "Drafting Schedule"], ["DollarSummary", "$ Summary (finance)"],
+    ["Variations", "Variations & RFIs"], ["Defects", "Defects & Handover"], ["ProgressClaims", "Progress Claims"], ["Dashboard", "Management Dashboard"]
   ];
   var DEFAULT_ADMINS = ["Andrew Utz"], ADMIN_FILE = "utzline-admins.json", PENDING_FILE = "utzline-users-pending.json";
   var cfg = null, admins = DEFAULT_ADMINS.slice(), adminsAt = 0, busy = false, shownFor = {};
@@ -2639,7 +2990,9 @@
     if (isAdminName(name)) return true;
     var row = rows.filter(function(r){ return r && low(r.name) === low(name); })[0];
     var own = row ? codesOf(row) : [];
-    if (!deptCache || !deptAppsRead) return own.length ? appMatch(own, code) : true; // departments not read yet (first run, nothing remembered): old rule
+    // (2026-10-09) Andrew: "only people assigned to an app should show on the login page" -- a name with no app ticked used to show EVERYWHERE while the department
+    // files hadn't been read (or don't exist yet); now only the apps ticked on the name (and, once read, its department's) put a name on the login page
+    if (!deptCache || !deptAppsRead) return appMatch(own, code);
     return appMatch(own, code) || appMatch(defaultApps(name) || [], code);
   }
   function showsHere(row, rows){ return !!(row && row.name) && canUse(row.name, rows); }
@@ -3145,7 +3498,7 @@
       return p === "granted";
     }, function(){ return false; });
   }
-  window.UtzUsers = { ensureAccess: ensureAccess, canUse: canUse, noAccessNames: noAccessNames, defaultApps: defaultApps, refreshDefaults: refreshDefaults, DEPARTMENTS: DEPARTMENTS, departmentsOf: departmentsOf, setDepartments: setDepartments, pickDepartments: pickDepartments, APP_CODES: APP_CODES, init: init, filterNames: filterNames, showsHere: showsHere, needsApproval: needsApproval, request: request, poke: poke, loadAdmins: loadAdmins, isAdmin: isAdminName, PENDING_FILE: PENDING_FILE, openUsers: openManage, ADMIN_FILE: ADMIN_FILE };
+  window.UtzUsers = { name: function(){ try { return (cfg && cfg.getName && cfg.getName()) || ""; } catch (e) { return ""; } }, rows: function(){ return cfg && cfg.readUsers ? Promise.resolve(cfg.readUsers()).then(function(r){ return r || []; }) : Promise.resolve([]); }, ensureAccess: ensureAccess, canUse: canUse, noAccessNames: noAccessNames, defaultApps: defaultApps, refreshDefaults: refreshDefaults, DEPARTMENTS: DEPARTMENTS, departmentsOf: departmentsOf, setDepartments: setDepartments, pickDepartments: pickDepartments, APP_CODES: APP_CODES, init: init, filterNames: filterNames, showsHere: showsHere, needsApproval: needsApproval, request: request, poke: poke, loadAdmins: loadAdmins, isAdmin: isAdminName, PENDING_FILE: PENDING_FILE, openUsers: openManage, ADMIN_FILE: ADMIN_FILE };
 })();
 </script>
 <!-- UTZLINE-USERS END -->
@@ -3480,7 +3833,8 @@
      flaggedTo       { group: "machineShop" | "factoryManagers" | "manufacture" | "install" | "delivery" | "solidSurface" }
                                        (2026-10-02: who a rework is flagged with -- chosen when it is logged or later; a drafter is flagged
                                         with drafterAssigned above; flaggedTo hands it to a group and clears any drafter)
-     drafterAction   { action: "resentToCnc" | "notRequired" | "passedOn", to?, fileName? }
+     drafterAction   { action: "resentToCnc" | "notRequired" | "passedOn", to?, fileName?, machine? }
+                                        (2026-10-06: machine = the machine the file was sent to, picked in a popup from utzline-machines.json at the Projects root)
                                         (2026-10-02: fileName = the file the drafter sent to the CNC, typed with "Sent to CNC")
                                         (the drafter's answer; passedOn hands it to drafter `to`)
                                         (2026-10-02: "resentToCnc" now reads "Sent to CNC" on screen and in PDFs -- the stored value is unchanged)
@@ -3901,9 +4255,9 @@
          else {
            var a = ev.action === "resentToCnc" || ev.action === "notRequired" || ev.action === "passedOn" ? ev.action : "";
            if (!a) return;
-           drafterHistory.push({ kind: a, to: ev.to || "", fileName: String(ev.fileName || "").trim(), at: ev.at || "", by: ev.by || "", app: ev.app || "" });
+           drafterHistory.push({ kind: a, to: ev.to || "", fileName: String(ev.fileName || "").trim(), machine: String(ev.machine || "").trim(), at: ev.at || "", by: ev.by || "", app: ev.app || "" });
            if (a === "passedOn"){ drafter = String(ev.to || "").trim(); drafterAt = ev.at || ""; drafterBy = ev.by || ""; drafterAction = null; flagGroup = "drafter"; flagGroupAt = ev.at || ""; flagGroupBy = ev.by || ""; }
-           else{ drafterAction = { action: a, fileName: String(ev.fileName || "").trim(), at: ev.at || "", by: ev.by || "", app: ev.app || "" }; if (a === "resentToCnc" && drafterAction.fileName) cncFile = { fileName: drafterAction.fileName, at: ev.at || "", by: ev.by || "" }; }
+           else{ drafterAction = { action: a, fileName: String(ev.fileName || "").trim(), machine: String(ev.machine || "").trim(), at: ev.at || "", by: ev.by || "", app: ev.app || "" }; if (a === "resentToCnc" && drafterAction.fileName) cncFile = { fileName: drafterAction.fileName, machine: drafterAction.machine, at: ev.at || "", by: ev.by || "" }; }
          }
        });
     // (2026-10-02) Machine Schedule: "Cutting not required" -- the latest cutNotRequired event wins (undo: true clears it)
@@ -3951,7 +4305,7 @@
     if (f.closed) out.push({ at: f.closed.at, by: f.closed.by, what: "Closed out", kind: "closed", app: f.closed.app || "" });
     f.comments.forEach(function(c){ out.push({ at: c.at, by: c.by || "", what: "Comment: " + (c.text || ""), kind: "comment", app: c.app || "" }); });
     (f.drafterHistory || []).forEach(function(d){
-      var what = d.kind === "flaggedTo" ? "Flagged to " + (FLAG_GROUPS[d.group] || d.group) : d.kind === "assigned" ? "Flagged to drafter " + (d.drafter || "?") : d.kind === "resentToCnc" ? "Drafter: sent to CNC" + (d.fileName ? " — file: " + d.fileName : "") : d.kind === "notRequired" ? "Drafter: not required (nothing to redraw)" : "Drafter: passed on to " + (d.to || "?");
+      var what = d.kind === "flaggedTo" ? "Flagged to " + (FLAG_GROUPS[d.group] || d.group) : d.kind === "assigned" ? "Flagged to drafter " + (d.drafter || "?") : d.kind === "resentToCnc" ? "Drafter: sent to CNC" + (d.machine ? " (" + d.machine + ")" : "") + (d.fileName ? " — file: " + d.fileName : "") : d.kind === "notRequired" ? "Drafter: not required (nothing to redraw)" : "Drafter: passed on to " + (d.to || "?");
       out.push({ at: d.at, by: d.by || "", what: what, kind: "drafter", app: d.app || "" });
     });
     (f.cutHistory || []).forEach(function(c){
@@ -3960,6 +4314,7 @@
     out.sort(function(a, b){ return String(b.at || "").localeCompare(String(a.at || "")); });
     return out;
   }
+  function cncText(c){ return c ? c.fileName + (c.machine ? " → " + c.machine : "") : ""; } // (2026-10-06) the file and the machine it went to
   function drafterActionLabel(a){ return a === "resentToCnc" ? "Sent to CNC" : a === "notRequired" ? "Not required" : a === "passedOn" ? "Passed on" : ""; }
   function stateLabel(status, short){ var s = STATES[status] || STATES.logged; return short ? s.short : s.long; }
 
@@ -4114,8 +4469,8 @@
     // extra row costs 28pt and would push photos off page 1 on every other PDF
     if (f.cutNotRequired) fields.push(["Cutting", "Not required — " + [fmtDate(f.cutNotRequired.at, true), f.cutNotRequired.by].filter(Boolean).join(", ")]);
     if (!f.drafter && f.flagGroup && FLAG_GROUPS[f.flagGroup]) fields.push(["Flagged to", FLAG_GROUPS[f.flagGroup]], ["", ""]);
-    if (f.cncFile && !f.drafter) fields.push(["CNC file", f.cncFile.fileName + (f.cncFile.by ? " (sent by " + f.cncFile.by + ")" : "")], ["", ""]);
-    if (f.drafter) fields.push(["Drafter", f.drafter + (f.drafterAction ? " — " + drafterActionLabel(f.drafterAction.action) + (f.drafterAction.fileName ? " (" + f.drafterAction.fileName + ")" : "") : " (flagged)")], ["", ""]);
+    if (f.cncFile && !f.drafter) fields.push(["CNC file", cncText(f.cncFile) + (f.cncFile.by ? " (sent by " + f.cncFile.by + ")" : "")], ["", ""]);
+    if (f.drafter) fields.push(["Drafter", f.drafter + (f.drafterAction ? " — " + drafterActionLabel(f.drafterAction.action) + (f.drafterAction.fileName ? " (" + f.drafterAction.fileName + (f.drafterAction.machine ? " → " + f.drafterAction.machine : "") + ")" : "") : " (flagged)")], ["", ""]);
     while (fields.length && fields[fields.length - 1][0] === "" ) fields.pop();
     var rowPitch = 28;
     var colW = CW / 2;
@@ -4367,10 +4722,10 @@
   // (2026-10-02) a short "Drafter: X -- Sent to CNC" tag for the register / strip rows ("" when the rework was never flagged to one)
   function drafterTag(f){
     if (!f.drafter){
-      if (f.flagGroup && FLAG_GROUPS[f.flagGroup]) return "<div class=\"urw-small urw-drafter-tag\">Flagged to: <b>" + escapeHtml(FLAG_GROUPS[f.flagGroup]) + "</b>" + (f.cncFile ? " — CNC file: <b>" + escapeHtml(f.cncFile.fileName) + "</b>" : "") + "</div>";
+      if (f.flagGroup && FLAG_GROUPS[f.flagGroup]) return "<div class=\"urw-small urw-drafter-tag\">Flagged to: <b>" + escapeHtml(FLAG_GROUPS[f.flagGroup]) + "</b>" + (f.cncFile ? " — CNC file: <b>" + escapeHtml(cncText(f.cncFile)) + "</b>" : "") + "</div>";
       return "";
     }
-    return "<div class=\"urw-small urw-drafter-tag\">Drafter: " + escapeHtml(f.drafter) + " — " + (f.drafterAction ? "<b>" + escapeHtml(drafterActionLabel(f.drafterAction.action)) + "</b>" + (f.drafterAction.fileName ? " (" + escapeHtml(f.drafterAction.fileName) + ")" : "") : "flagged") + (f.cncFile && !(f.drafterAction && f.drafterAction.fileName) ? " — CNC file: <b>" + escapeHtml(f.cncFile.fileName) + "</b>" : "") + "</div>";
+    return "<div class=\"urw-small urw-drafter-tag\">Drafter: " + escapeHtml(f.drafter) + " — " + (f.drafterAction ? "<b>" + escapeHtml(drafterActionLabel(f.drafterAction.action)) + "</b>" + (f.drafterAction.fileName ? " (" + escapeHtml(f.drafterAction.fileName + (f.drafterAction.machine ? " → " + f.drafterAction.machine : "")) + ")" : "") : "flagged") + (f.cncFile && !(f.drafterAction && f.drafterAction.fileName) ? " — CNC file: <b>" + escapeHtml(cncText(f.cncFile)) + "</b>" : "") + "</div>";
   }
   function rowKey(row){ return (row.project || "") + "\u0000" + (row.isFlat ? "F" : "L") + "\u0000" + (row.levelDir || "") + "\u0000" + (row.roomDir || "") + "\u0000" + row.fileName; }
   function entryKey(row){ return rowKey(row) + "\u0000" + (row.entry.id || row.entry.createdAt || ""); }
@@ -4639,7 +4994,7 @@
         "<td>" + pillHtml(f) + drafterTag(f) + "</td>" +
         "<td class=\"urw-acts\">" + act + "<button type=\"button\" class=\"btn secondary sm\" data-urw-open=\"" + idx + "\">Open</button></td>" +
         "<td class=\"urw-text\">" + escapeHtml(e.text || "(no description)") + "</td>" +
-        "<td class=\"urw-cncfile\">" + (f.cncFile ? "<b>" + escapeHtml(f.cncFile.fileName) + "</b>" : "<span class=\"urw-muted\">—</span>") + "</td>" +
+        "<td class=\"urw-cncfile\">" + (f.cncFile ? "<b>" + escapeHtml(f.cncFile.fileName) + "</b>" + (f.cncFile.machine ? "<div class=\"urw-small urw-muted\">" + escapeHtml(f.cncFile.machine) + "</div>" : "") : "<span class=\"urw-muted\">—</span>") + "</td>" +
         "<td>" + (e.photoCount ? e.photoCount : "—") + "</td>" +
         "<td>" + escapeHtml(fmtDate(e.createdAt, true)) + (e.createdBy ? "<div class=\"urw-small urw-muted\">" + escapeHtml(e.createdBy) + "</div>" : "") + "</td>" +
         "<td class=\"urw-loggedin\">" + (e.createdApp ? escapeHtml(appLabel(e.createdApp)) : "<span class=\"urw-muted\">—</span>") + "</td>" +
@@ -4722,6 +5077,13 @@
       el.querySelector("[data-urw=outTable]").innerHTML = html;
       el.querySelector("[data-urw=outEmpty]").hidden = !!out.length || st.loading;
       el.querySelector("[data-urw=delivTable]").innerHTML = theadHtml() + "<tbody>" + deliv.map(function(r, i){ return rowHtml(r, out.length + i); }).join("") + "</tbody>";
+      // (2026-10-10) Andrew: "all tables need to be sortable, selectable columns" -- the headings already sort; the shared Columns menu (when the app has it) adds
+      // show / hide / move. The tables are rebuilt on every render, so the choice is re-applied each time.
+      if (window.UtzColumns){
+        var tOut = el.querySelector("[data-urw=outTable]"), tDel = el.querySelector("[data-urw=delivTable]");
+        UtzColumns.ensure(tOut, "utzline-rework:columns:outstanding", { frozen: 0, mountBefore: el.querySelector("[data-urw=refresh]").parentNode }); UtzColumns.apply(tOut);
+        UtzColumns.ensure(tDel, "utzline-rework:columns:delivered", { frozen: 0 }); UtzColumns.apply(tDel);
+      }
       el.querySelector("[data-urw=delivEmpty]").hidden = !!deliv.length;
       el.querySelector("[data-urw=delivCard]").hidden = !st.showDelivered;
       el.querySelector("[data-urw=delivToggle]").textContent = "Delivered (" + deliv.length + ") " + (st.showDelivered ? "▾" : "▸");
@@ -4858,6 +5220,64 @@
         return names;
       });
       return drafterCache[key];
+    }
+    // (2026-10-06) Andrew: "when a rework is sent to cnc (filename is entered) have a popup that says what machine has this been sent to,
+    // with a drop down selector where you can add machine names". The list is utzline-machines.json at the Projects root (every project
+    // shares it); a new name is added to it there and then. Resolves the machine name, or null when the popup is cancelled.
+    var MACHINES_FILE = "utzline-machines.json";
+    function readMachines(){
+      var root = cfg.getRootHandle && cfg.getRootHandle();
+      if (!root) return Promise.resolve([]);
+      return root.getFileHandle(MACHINES_FILE, { create: false }).then(function(fh){ return fh.getFile(); }).then(function(f){ return f.text(); })
+        .then(function(t){ var j = JSON.parse(t); return Array.isArray(j) ? j.map(function(x){ return String(x || "").trim(); }).filter(Boolean) : []; }, function(){ return []; });
+    }
+    function saveMachines(list){
+      var root = cfg.getRootHandle && cfg.getRootHandle();
+      if (!root) return Promise.resolve(false);
+      return root.getFileHandle(MACHINES_FILE, { create: true }).then(function(fh){ return fh.createWritable(); }).then(function(w){ return Promise.resolve(w.write(JSON.stringify(list, null, 1))).then(function(){ return w.close(); }); }).then(function(){ return true; }, function(err){ console.error("Saving the machine list failed:", err); return false; });
+    }
+    function askMachine(row, fileName){
+      return readMachines().then(function(list){
+        return new Promise(function(resolve){
+          var last = ""; try{ last = localStorage.getItem("utzline-last-machine") || ""; }catch(e){}
+          var bd = document.createElement("div"); bd.className = "urw-machine-ask";
+          bd.style.cssText = "position:fixed;inset:0;z-index:2147481500;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;";
+          var box = document.createElement("div"); box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Which machine");
+          box.style.cssText = "background:var(--panel,var(--surface-1,#1c2125));color:var(--text,var(--text-primary,#eee));border:1px solid var(--border,#444);border-radius:12px;max-width:420px;width:100%;padding:16px;";
+          box.innerHTML = "<h2 style=\"margin:0 0 4px;font-size:18px;\">Which machine?</h2>" +
+            "<p style=\"margin:0 0 10px;opacity:.8;font-size:14px;\">" + escapeHtml(fileName ? "“" + fileName + "” was sent to…" : "This rework was sent to…") + "</p>" +
+            "<select data-urw-m=\"sel\" style=\"width:100%;font:inherit;min-height:42px;padding:6px 10px;border-radius:8px;\"></select>" +
+            "<div data-urw-m=\"addRow\" style=\"display:none;gap:8px;margin-top:8px;\"><input data-urw-m=\"new\" type=\"text\" maxlength=\"60\" placeholder=\"New machine name\" style=\"flex:1;font:inherit;min-height:42px;padding:6px 10px;border-radius:8px;\"><button type=\"button\" data-urw-m=\"add\" style=\"font:inherit;min-height:42px;padding:6px 14px;border-radius:8px;\">Add</button></div>" +
+            "<p data-urw-m=\"err\" style=\"margin:8px 0 0;color:#e77;font-size:13px;\" hidden></p>" +
+            "<div style=\"display:flex;gap:10px;justify-content:flex-end;margin-top:14px;\"><button type=\"button\" data-urw-m=\"cancel\" style=\"font:inherit;min-height:42px;padding:6px 16px;border-radius:8px;\">Cancel</button><button type=\"button\" data-urw-m=\"ok\" style=\"font:inherit;min-height:42px;padding:6px 16px;border-radius:8px;font-weight:700;\">Sent</button></div>";
+          bd.appendChild(box); document.body.appendChild(bd);
+          function q(n){ return box.querySelector("[data-urw-m=" + n + "]"); }
+          var sel = q("sel");
+          function fill(pick){
+            list.sort(function(a, b){ return a.localeCompare(b, undefined, { sensitivity: "base" }); });
+            sel.innerHTML = "<option value=\"\">— pick a machine —</option>" + list.map(function(n){ return "<option>" + escapeHtml(n) + "</option>"; }).join("") + "<option value=\"__add\">+ Add a machine…</option>";
+            sel.value = pick && list.indexOf(pick) !== -1 ? pick : "";
+          }
+          fill(last);
+          function finish(v){ if (bd.parentNode) bd.parentNode.removeChild(bd); resolve(v); }
+          sel.addEventListener("change", function(){ var add = sel.value === "__add"; q("addRow").style.display = add ? "flex" : "none"; if (add) q("new").focus(); });
+          function doAdd(){
+            var n = q("new").value.trim().replace(/\s+/g, " "); if (!n) return;
+            var have = list.filter(function(x){ return x.toLowerCase() === n.toLowerCase(); })[0];
+            if (have){ q("addRow").style.display = "none"; q("new").value = ""; fill(have); return; }
+            list.push(n);
+            saveMachines(list).then(function(ok){ if (!ok){ q("err").hidden = false; q("err").textContent = "Couldn't save the new machine to the list — it is used for this one only."; } q("addRow").style.display = "none"; q("new").value = ""; fill(n); });
+          }
+          q("add").addEventListener("click", doAdd);
+          q("new").addEventListener("keydown", function(e){ if (e.key === "Enter"){ e.preventDefault(); doAdd(); } });
+          q("cancel").addEventListener("click", function(){ finish(null); });
+          q("ok").addEventListener("click", function(){
+            if (!sel.value || sel.value === "__add"){ q("err").hidden = false; q("err").textContent = "Pick the machine it was sent to (or add it)."; return; }
+            try{ localStorage.setItem("utzline-last-machine", sel.value); }catch(e){}
+            finish(sel.value);
+          });
+        });
+      });
     }
     // (2026-10-02) the drafter's own answer (Viewer drafter panel): Sent to CNC (+ the file name) / Not required / pass on
     function writeDrafterAction(row, payload, doneMsg){
@@ -5163,7 +5583,7 @@
             "<dt>State</dt><dd>" + pillHtml(f) + (f.statusAt ? " <span class=\"urw-small urw-muted\">" + escapeHtml([f.statusBy, fmtDate(f.statusAt, true)].filter(Boolean).join(", ")) + "</span>" : "") + "</dd>" +
             (f.delivered ? "<dt>Delivered</dt><dd>" + escapeHtml([f.delivered.date || fmtDate(f.delivered.at), f.delivered.by].filter(Boolean).join(" — ")) + "</dd>" : "") +
             (!f.drafter && f.flagGroup && FLAG_GROUPS[f.flagGroup] ? "<dt>Flagged to</dt><dd>" + escapeHtml(FLAG_GROUPS[f.flagGroup]) + " <span class=\"urw-small urw-muted\">" + escapeHtml([f.flagGroupBy, fmtDate(f.flagGroupAt, true)].filter(Boolean).join(", ")) + "</span></dd>" : "") +
-            (f.cncFile && !f.drafter ? "<dt>CNC file</dt><dd><b>" + escapeHtml(f.cncFile.fileName) + "</b> <span class=\"urw-small urw-muted\">" + escapeHtml([f.cncFile.by, fmtDate(f.cncFile.at, true)].filter(Boolean).join(", ")) + "</span></dd>" : "") +
+            (f.cncFile && !f.drafter ? "<dt>CNC file</dt><dd><b>" + escapeHtml(cncText(f.cncFile)) + "</b> <span class=\"urw-small urw-muted\">" + escapeHtml([f.cncFile.by, fmtDate(f.cncFile.at, true)].filter(Boolean).join(", ")) + "</span></dd>" : "") +
             (f.drafter ? "<dt>Drafter</dt><dd>" + escapeHtml(f.drafter) + (f.drafterAction ? " — <b>" + escapeHtml(drafterActionLabel(f.drafterAction.action)) + "</b>" + (f.drafterAction.fileName ? " <span class=\"urw-small\">(file: " + escapeHtml(f.drafterAction.fileName) + ")</span>" : "") + " <span class=\"urw-small urw-muted\">" + escapeHtml([f.drafterAction.by, fmtDate(f.drafterAction.at, true)].filter(Boolean).join(", ")) + "</span>" : " <span class=\"urw-small urw-muted\">(flagged" + (f.drafterBy ? " by " + escapeHtml(f.drafterBy) : "") + ")</span>") + "</dd>" : "") +
           "</dl>" +
           "<p class=\"urw-desc\">" + escapeHtml(e.text || "(no description)") + "</p>" +
@@ -5200,7 +5620,7 @@
       if (ncb) ncb.addEventListener("click", function(){ ncb.disabled = true; setCutNotRequired(row, false).then(function(){ ncb.disabled = false; }); });
       if (ncu) ncu.addEventListener("click", function(){ ncu.disabled = true; setCutNotRequired(row, true).then(function(){ ncu.disabled = false; }); });
       var cncIn = el.querySelector("[data-urw-d=cncFile]"), cncGo = el.querySelector("[data-urw-d=cncSent]"), nrGo = el.querySelector("[data-urw-d=drafterNotReq]");
-      if (cncGo) cncGo.addEventListener("click", function(){ cncGo.disabled = true; writeDrafterAction(row, { action: "resentToCnc", fileName: cncIn ? cncIn.value.trim() : "" }, "Sent to CNC — logged.").then(function(){ cncGo.disabled = false; }); });
+      if (cncGo) cncGo.addEventListener("click", function(){ cncGo.disabled = true; var fn = cncIn ? cncIn.value.trim() : ""; askMachine(row, fn).then(function(machine){ if (machine === null) return false; return writeDrafterAction(row, { action: "resentToCnc", fileName: fn, machine: machine }, "Sent to CNC (" + machine + ") — logged."); }).then(function(){ cncGo.disabled = false; }); });
       if (nrGo) nrGo.addEventListener("click", function(){ nrGo.disabled = true; writeDrafterAction(row, { action: "notRequired" }, "Not required — logged.").then(function(){ nrGo.disabled = false; }); });
       Array.prototype.forEach.call(el.querySelectorAll("[data-urw-d=flagGrp]"), function(gb){
         gb.addEventListener("click", function(){ gb.disabled = true; flagGroupTo(row, gb.getAttribute("data-grp")).then(function(ok){ if (!ok) gb.disabled = false; }); });
@@ -5410,7 +5830,66 @@
       return loadAll();
     }
 
+    /* ---- (2026-10-06) Andrew: "when a rework is flagged to someone or a department, show a popup reminder of the reworks for that
+       person or department when they log in" -- every open rework flagged to the signed-in person (a drafter) or to a department they are
+       in (shared/users: utzline-departments.json), once per sign-in. ---- */
+    function myReworks(user, depts){
+      var lo = String(user || "").toLowerCase();
+      return st.rows.filter(function(r){
+        var evs = eventsOf(r); if (!evs) return false;
+        var f = fold(r.entry, evs);
+        if (f.isDone) return false;
+        if (f.drafter) return f.drafter.toLowerCase() === lo;
+        return !!(f.flagGroup && FLAG_GROUPS[f.flagGroup] && depts.indexOf(f.flagGroup) !== -1);
+      });
+    }
+    var remindEl = null;
+    function closeRemind(){ if (remindEl && remindEl.parentNode) remindEl.parentNode.removeChild(remindEl); remindEl = null; }
+    function showRemind(mine, user){
+      closeRemind();
+      var bd = document.createElement("div"); bd.className = "urw-remind"; remindEl = bd;
+      bd.style.cssText = "position:fixed;inset:0;z-index:2147481000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;";
+      var box = document.createElement("div"); box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Reworks for you");
+      box.style.cssText = "background:#5a1a26;color:#fff;border:2px solid #8c2a3a;border-radius:12px;max-width:520px;width:100%;max-height:80vh;overflow:auto;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.5);"; // (2026-10-06) Andrew: "make this more maroon"
+      var h = document.createElement("h2"); h.style.cssText = "margin:0 0 4px;font-size:18px;"; h.textContent = "Reworks for you"; box.appendChild(h);
+      var p = document.createElement("p"); p.style.cssText = "margin:0 0 10px;opacity:.9;font-size:14px;";
+      p.textContent = mine.length + (mine.length === 1 ? " open rework is" : " open reworks are") + " flagged to you or your department, " + user + ".";
+      box.appendChild(p);
+      mine.slice(0, 10).forEach(function(r){
+        var f = fold(r.entry, eventsOf(r) || []);
+        var b = document.createElement("button"); b.type = "button"; b.className = "urw-remind-row";
+        b.style.cssText = "display:block;width:100%;text-align:left;font:inherit;padding:8px 10px;margin:0 0 6px;border-radius:8px;border:1px solid #a03a4c;background:rgba(0,0,0,.22);color:inherit;cursor:pointer;";
+        var to = f.drafter ? "you" : (FLAG_GROUPS[f.flagGroup] || "");
+        b.innerHTML = "<b>" + escapeHtml(r.code || "") + "</b>" + (r.entry.cabinetNumber ? " · Cab " + escapeHtml(r.entry.cabinetNumber) : "") + " <span style=\"opacity:.7\">" + escapeHtml([r.project, r.level, r.room].filter(Boolean).join(" · ")) + "</span><br><span style=\"font-size:13px;opacity:.85\">" + escapeHtml(String(r.entry.text || "").slice(0, 90)) + "</span> <span style=\"font-size:12px;opacity:.7\">→ " + escapeHtml(to) + "</span>";
+        b.addEventListener("click", function(){ closeRemind(); openRegister(r.project || ""); openDetail(r, "register"); });
+        box.appendChild(b);
+      });
+      if (mine.length > 10){ var more = document.createElement("p"); more.style.cssText = "margin:0 0 8px;opacity:.7;font-size:13px;"; more.textContent = "…and " + (mine.length - 10) + " more."; box.appendChild(more); }
+      var row = document.createElement("div"); row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;";
+      var all = document.createElement("button"); all.type = "button"; all.textContent = "Open all reworks";
+      var close = document.createElement("button"); close.type = "button"; close.textContent = "Close";
+      [all, close].forEach(function(x){ x.style.cssText = "font:inherit;min-height:42px;padding:6px 16px;border-radius:8px;border:1px solid #c04a5e;background:#7a2335;color:#fff;cursor:pointer;"; });
+      all.addEventListener("click", function(){ closeRemind(); openRegister(""); });
+      close.addEventListener("click", closeRemind);
+      row.appendChild(all); row.appendChild(close); box.appendChild(row);
+      bd.appendChild(box); bd.addEventListener("click", function(e){ if (e.target === bd) closeRemind(); });
+      document.body.appendChild(bd);
+    }
+    function remindMe(){
+      var user = cfg.getUser && cfg.getUser();
+      if (!user) return Promise.resolve(false);
+      var deptsP = (window.UtzUsers && window.UtzUsers.departmentsOf) ? window.UtzUsers.departmentsOf(user) : Promise.resolve([]);
+      return Promise.all([deptsP, ensureLoaded(120000)]).then(function(r){
+        var mine = myReworks(user, r[0] || []);
+        if (!mine.length) return false;
+        showRemind(mine, user);
+        return true;
+      }).catch(function(err){ console.warn("Rework reminder skipped:", err); return false; });
+    }
+    window.addEventListener("utzline-signed-in", function(){ setTimeout(remindMe, 600); });
+
     return {
+      remindMe: remindMe,
       openRegister: openRegister, refresh: function(){ return loadAll(); }, ensureLoaded: ensureLoaded,
       openDetail: openDetail, closeDetail: closeDetail, closeOverlay: closeZoom,
       renderItemCard: renderItemCard, renderStrip: renderStrip,
@@ -9251,6 +9730,8 @@
      Viewer/ITP/UTZLINE Projects: Projects -> Levels -> Rooms -> Items).
      groupItems still does the same level/room grouping it always did; it
      now feeds three separate screens instead of one long grouped list. */
+  // (2026-10-10) Andrew: "zones are not levels" -- a level split over several plans (Projects: "LEVEL 1 (H1a)") reads as "LEVEL 1 · H1a" (shared/level-zones)
+  function lzFull(l){ var ph = state.project && state.project.projectHandle; return (window.UtzLevelZones && ph) ? UtzLevelZones.full(l || "", UtzLevelZones.use(ph, function(){ if (state.project) renderLevels(); })) : (l || ""); }
   function groupItems(items){
     var groups = [], byLevel = {};
     items.forEach(function(it){
@@ -9284,7 +9765,7 @@
       row.type = "button";
       row.innerHTML =
         '<div class="li-main">' +
-          '<div class="li-title">' + escapeHtml(g.level) + "</div>" +
+          '<div class="li-title">' + escapeHtml(lzFull(g.level)) + "</div>" +
           '<div class="li-sub">' + roomNames.length + " room" + (roomNames.length === 1 ? "" : "s") + " · " + itemCount + " item" + (itemCount === 1 ? "" : "s") + "</div>" +
         "</div>" +
         '<div class="row" style="gap:8px;">' + countBadgeHtml(orderCount, "order") + '<span class="chev">&rsaquo;</span></div>';
@@ -9295,7 +9776,7 @@
   function openLevel(levelName){
     state.activeLevel = levelName;
     state.activeRoom = null;
-    roomsLevelLabel.textContent = levelName;
+    roomsLevelLabel.textContent = lzFull(levelName);
     renderRooms();
     showScreen("rooms");
   }
@@ -9324,7 +9805,7 @@
   }
   function openRoom(roomName){
     state.activeRoom = roomName;
-    itemsRoomLabel.textContent = state.activeLevel + " — " + roomName;
+    itemsRoomLabel.textContent = lzFull(state.activeLevel) + " — " + roomName;
     itemFilterInput.value = "";
     renderItems();
     showScreen("items");
@@ -9786,6 +10267,8 @@
   var supEls = { title: document.getElementById("supplierTitle"), sub: document.getElementById("supplierSub"), show: document.getElementById("supShow"),
     search: document.getElementById("supSearch"), body: document.getElementById("supBody"), empty: document.getElementById("supEmpty"), all: document.getElementById("supAll"),
     count: document.getElementById("supSelCount"), recDate: document.getElementById("supRecDate"), table: document.getElementById("supTable") };
+  // (2026-10-10) Andrew: "all tables need to be sortable, selectable columns" -- the headings already sort; the shared Columns menu adds show / hide / move
+  if (window.UtzColumns) UtzColumns.attach(document.getElementById("supTable"), { storageKey: "utzline-sub-orders:columns:orders", frozen: 1 });
   var sup = { key: "", name: "", sel: {}, sort: { k: "requiredByDate", desc: false }, busy: false };
   var NO_SUPPLIER = "(No supplier)";
   function supKeyOf(name){ return String(name || "").trim().toLowerCase().replace(/\s+/g, " ") || "\u0000"; }
